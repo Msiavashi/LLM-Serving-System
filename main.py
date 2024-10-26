@@ -2,8 +2,8 @@
 from transformers import AutoConfig, AutoTokenizer
 from transformers import BitsAndBytesConfig
 import torch
-from mixtral_model import MyCustomMixtral
-from scheduler import Scheduler
+from src.models.mixtral_model import MyCustomMixtral
+from src.schedulers.scheduler import Scheduler
 import random
 
 
