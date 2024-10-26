@@ -7,6 +7,7 @@ from src.queues import FCFSQueue
 
 from src.sequence import Sequence
 from src.batching.batch import Batch
+import time
 
 class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
     def __init__(self, config):
