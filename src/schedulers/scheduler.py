@@ -1,4 +1,3 @@
-import queue
 import torch
 import time
 
@@ -8,12 +7,12 @@ from src.batching.policies import SizeBasedBatchPolicy
 from src.performance_metrics import PerformanceMetrics
 
 class Scheduler:
-    def __init__(self, model, tokenizer, batch_size=32):
+    def __init__(self, model, tokenizer, batch_size=4):
         self.model = model
         self.tokenizer = tokenizer
         self.sequence_queue = SequenceQueue()
         self.batch_policy = SizeBasedBatchPolicy(batch_size, self.sequence_queue)
-        self.num_iterations = 100
+        self.num_iterations = 10
         self.metrics = PerformanceMetrics()
 
     def add_sequence_to_queue(self, prompt, stage="prefill"):

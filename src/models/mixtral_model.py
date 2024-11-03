@@ -76,8 +76,6 @@ class MyCustomMixtral(MixtralForCausalLM):
         logits = outputs.logits
         kv_cache = outputs.past_key_values
         
-        
         batch.update_sequences(logits, kv_cache)
-        
         
         return batch

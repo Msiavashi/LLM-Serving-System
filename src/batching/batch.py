@@ -18,30 +18,6 @@ class ModelInputs:
         self.attention_masks = attention_masks
         self.past_key_values = past_key_values
         
-    def restructure_kv_cache(self, past_key_values_list: List[Tuple[torch.Tensor, torch.Tensor]], num_layers: int) -> Tuple[Tuple[torch.Tensor, torch.Tensor]]:
-        """
-        Restructures the key-value cache for each layer.
-
-        Args:
-            past_key_values_list (List[Tuple[torch.Tensor, torch.Tensor]]): A list of tuples containing the key-value cache for each sequence.
-            num_layers (int): The number of layers.
-
-        Returns:
-            Tuple[Tuple[torch.Tensor, torch.Tensor]]: A tuple containing the restructured key-value cache for each layer.
-        """
-        past_key_values = []
-        for layer_idx in range(num_layers):
-            key_states_list, value_states_list = [], []
-            for seq_kv_cache in past_key_values_list:
-                key_i, value_i = seq_kv_cache[layer_idx]
-                key_states_list.append(key_i)
-                value_states_list.append(value_i)
-            key_states = torch.cat(key_states_list, dim=0)
-            value_states = torch.cat(value_states_list, dim=0)
-            past_key_values.append((key_states, value_states))
-        return tuple(past_key_values)
-        
-    
 class Batch:
     def __init__(self, sequences: List[Sequence] = None):
         self.sequences = sequences if sequences else []
@@ -83,7 +59,6 @@ class Batch:
 
     @property
     def model_inputs(self):
-        # if self._model_inputs is None:
         self._preprocess_sequences()
         return self._model_inputs
 
@@ -92,14 +67,17 @@ class Batch:
             last_token_logits = logits[i, -1, :]
             next_token_ids = torch.argmax(last_token_logits, dim=-1).unsqueeze(-1)
             
-            # Extract and store the new KV cache only for the i-th sequence
-            sequence_kv_cache = []
-            for layer_idx, (key_layer, value_layer) in enumerate(kv_caches):
-                # Extract the i-th sequence's cache for each layer
-                key_i = key_layer[i].unsqueeze(0)  # Keep the batch dimension
-                value_i = value_layer[i].unsqueeze(0)
-                sequence_kv_cache.append((key_i, value_i))
+            sequence.update(next_token_ids, kv_caches[i])
             
-            sequence.update(next_token_ids, sequence_kv_cache)
             if sequence.stage == "prefill":
                 sequence.stage = "decode"
+            
+    @classmethod
+    def update_kv_caches(cls, sequences: List[Sequence], kv_caches):
+        for i, sequence in enumerate(sequences):
+            sequence.kv_cache = kv_caches[i]
+                
+    @classmethod
+    def get_kv_caches(cls, sequences: List[Sequence]):
+        kv_caches = [sequence.kv_cache for sequence in sequences]
+        return kv_caches
