@@ -72,7 +72,7 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
             )
 
             for expert_idx in range(self.num_experts):
-                if self.queues[expert_idx].size() >= 1:
+                if self.queues[expert_idx].size() >= 4:
                     expert_layer = self.experts[expert_idx]
                     current_states = []
                     # new_routing_weights = []
@@ -114,21 +114,23 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
         cache_position: Optional[torch.LongTensor] = None,
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        MyMixtralDecoderLayer.counter += 1
+        # MyMixtralDecoderLayer.counter += 1
+        # print(f"Layer {MyMixtralDecoderLayer.counter % 32}")
         residual = hidden_states
 
-        hidden_states = self.input_layernorm(hidden_states)
+        # Skip the self-attention layer if the hidden_states is empty
+        if MyCustomMixtral.running_sequences:
+            hidden_states = self.input_layernorm(hidden_states)
         
-        hidden_states, self_attn_weights, present_key_value = self.self_attn(
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_value=past_key_value,
-            output_attentions=output_attentions,
-            use_cache=use_cache,
-            cache_position=cache_position,
-        )
-        
+            hidden_states, self_attn_weights, present_key_value = self.self_attn(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                cache_position=cache_position,
+            )
         hidden_states = residual + hidden_states
 
         # Fully Connected
@@ -136,11 +138,14 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
         
          
         hidden_states = self.post_attention_layernorm(hidden_states)
+        else:
+            present_key_value = None
+        
         
         # [Added] Caching the residual for the sequence
         for i, seq in enumerate(MyCustomMixtral.running_sequences):
-            splited_kv_cache = present_key_value.split_kv_cache(len(MyCustomMixtral.running_sequences))
             seq.cached_residual = residual[i]
+            splited_kv_cache = present_key_value.split_kv_cache(len(MyCustomMixtral.running_sequences))
             seq.kv_cache = splited_kv_cache[i]
         
         hidden_states, router_logits = self.block_sparse_moe(hidden_states)
@@ -321,6 +326,10 @@ class MyCustomMixtral(MixtralForCausalLM):
             self.model.layers[i].block_sparse_moe = MyMixtralSparseMoeBlock(config)
         
     def forward(self, batch: Batch, **kwargs):
+        if not hasattr(self, 'forward_call_count'):
+            self.forward_call_count = 0
+        self.forward_call_count += 1
+        print(f"Forward call count: {self.forward_call_count}")
         MyCustomMixtral.running_sequences = batch.sequences
         input_ids_list, attention_mask_list, past_key_values_list = batch.model_inputs.get_all_inputs()
         

@@ -35,17 +35,8 @@ def usage_example():
     model, tokenizer = initialize_model_and_tokenizer()
     prompts = [
         "What is the meaning of life?", 
-        "What is the capital of France?", 
-        # "What is the largest mammal?", 
-        "What is the most popular programming language?", 
-        # "Explain the theory of relativity in simple terms.",
-        # "How does photosynthesis work in plants?",
-        "What are the main differences between Python 2 and Python 3?",
-        # "Describe the process of cellular respiration.",
-        # "What are the benefits of using renewable energy sources?",
-        # "Can you provide an overview of quantum mechanics?",
-    ]
-    
+    ] * 128
+    print(len(prompts))
     # random.shuffle(prompts)
     
     scheduler = Scheduler(model, tokenizer)
@@ -60,7 +51,7 @@ def usage_example():
     # Retrieve and print results
     for seq in results:
         generated_text = seq.get_generated_text(tokenizer)
-        print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
+        # print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
 
 
 if __name__ == "__main__":

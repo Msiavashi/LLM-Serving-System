@@ -38,7 +38,7 @@ class DynamicCacheEx(DynamicCache):
             MyDynamicCache: A new MyDynamicCache instance containing the merged KV caches.
         """
         merged_cache = cls()
-        if caches or caches[0] is not None:
+        if caches and caches[0] is not None:
             for layer_idx in range(len(caches[0])):
                 layer_keys = torch.cat([cache.key_cache[layer_idx] for cache in caches], dim=0)
                 layer_values = torch.cat([cache.value_cache[layer_idx] for cache in caches], dim=0)

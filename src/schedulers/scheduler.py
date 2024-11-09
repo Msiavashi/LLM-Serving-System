@@ -12,7 +12,7 @@ class Scheduler:
         self.tokenizer = tokenizer
         self.sequence_queue = SequenceQueue()
         self.batch_policy = SizeBasedBatchPolicy(batch_size, self.sequence_queue)
-        self.num_iterations = 10
+        self.num_iterations = 100
         self.metrics = PerformanceMetrics()
 
     def add_sequence_to_queue(self, prompt, stage="prefill"):
@@ -31,12 +31,14 @@ class Scheduler:
                 for i in range(self.num_iterations):
                     stage = "prefill" if i == 0 else "decode"
                     start_time = time.time()
-                    outputs = self.model(batch=batch, use_cache=True)
+                    batch = self.model(batch=batch, use_cache=True)
                     end_time = time.time()
-                    tokens_generated = sum(len(seq.input_ids) for seq in batch.sequences) + len(batch.sequences) if stage == "prefill" else len(outputs.sequences)
+                    tokens_generated = sum(len(seq.input_ids) for seq in batch.sequences) + len(batch.sequences) if stage == "prefill" else len(batch.sequences)
                     self.metrics.record_time(start_time, end_time, stage, tokens_generated=tokens_generated)
+                    if batch.size() == 0:
+                        break
                     
+                    self.metrics.report_metrics()  # Report metrics every iteration
             finished_sequences.extend(batch.sequences)
         
-        self.metrics.report_metrics()
         return finished_sequences
