@@ -1,8 +1,8 @@
-
 from transformers import AutoConfig, AutoTokenizer
 from transformers import BitsAndBytesConfig
 import torch
-from src.models.mixtral_model import MyCustomMixtral
+# from src.models.mixtral_model import MyCustomMixtral
+from src.models.mixtral_queue_model import MyCustomMixtral
 from src.schedulers.scheduler import Scheduler
 import random
 
@@ -18,7 +18,7 @@ def initialize_model_and_tokenizer():
         load_in_4bit=True,
         bnb_4bit_use_double_quant=True,
         bnb_4bit_quant_type='nf4',
-        bnb_4bit_compute_dtype=torch.float16
+        bnb_4bit_compute_dtype=torch.float16,
     )
     
     model = MyCustomMixtral.from_pretrained(
@@ -36,12 +36,17 @@ def usage_example():
     prompts = [
         "What is the meaning of life?", 
         "What is the capital of France?", 
-        "What is the largest mammal?", 
+        # "What is the largest mammal?", 
         "What is the most popular programming language?", 
-        "What is the best movie of all time?"
+        # "Explain the theory of relativity in simple terms.",
+        # "How does photosynthesis work in plants?",
+        "What are the main differences between Python 2 and Python 3?",
+        # "Describe the process of cellular respiration.",
+        # "What are the benefits of using renewable energy sources?",
+        # "Can you provide an overview of quantum mechanics?",
     ]
     
-    random.shuffle(prompts)
+    # random.shuffle(prompts)
     
     scheduler = Scheduler(model, tokenizer)
 
