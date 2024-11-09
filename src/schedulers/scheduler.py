@@ -7,7 +7,7 @@ from src.batching.policies import SizeBasedBatchPolicy
 from src.performance_metrics import PerformanceMetrics
 
 class Scheduler:
-    def __init__(self, model, tokenizer, batch_size=4):
+    def __init__(self, model, tokenizer, batch_size=32):
         self.model = model
         self.tokenizer = tokenizer
         self.sequence_queue = SequenceQueue()

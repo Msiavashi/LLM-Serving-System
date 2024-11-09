@@ -39,7 +39,7 @@ class Sequence(SequenceBase):
         self.generation_config = generation_config
         self.cached_hidden_state = None
         self.cached_routing_weight = None
-        self.cashed_residual = None
+        self.cached_residual = None
         inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(device)
         input_ids = inputs.input_ids
         attention_mask = inputs.attention_mask
