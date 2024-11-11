@@ -1,7 +1,7 @@
 from typing import List
 import torch
 from transformers import MixtralForCausalLM
-from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock, MixtralDecoderLayer, MixtralConfig, MixtralRotaryEmbedding, apply_rotary_pos_emb, repeat_kv, MixtralModel, MoeModelOutputWithPast
+from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock, MixtralDecoderLayer, MixtralConfig, MixtralRotaryEmbedding, apply_rotary_pos_emb, repeat_kv, MixtralModel, MoeModelOutputWithPast, MixtralAttention
 from torch.nn import functional as F
 from src.queues import FCFSQueue
 from src.sequence import Sequence
@@ -21,86 +21,88 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
     
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
-        if self.training and self.jitter_noise > 0:
-            hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
+        
+        # Combine reshape and conditional jitter into one operation
         hidden_states = hidden_states.view(-1, hidden_dim)
-        # router_logits: (batch * sequence_length, n_experts)
-        router_logits = self.gate(hidden_states)
+        if self.training and self.jitter_noise > 0:
+            hidden_states.mul_(1.0 + (torch.rand_like(hidden_states) * 2 - 1) * self.jitter_noise)
 
+        # Compute routing weights more efficiently
+        router_logits = self.gate(hidden_states)
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
         routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
-        routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
-        routing_weights = routing_weights.to(hidden_states.dtype)
+        routing_weights = routing_weights.div_(routing_weights.sum(dim=-1, keepdim=True)).to(hidden_states.dtype)
 
+        # Pre-allocate final hidden states tensor
         final_hidden_states = torch.zeros(
-            (batch_size * sequence_length, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
+            (batch_size * sequence_length, hidden_dim), 
+            dtype=hidden_states.dtype, 
+            device=hidden_states.device
         )
 
+        # Optimize expert routing
         expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
+        selected_expert_indices = torch.nonzero(expert_mask.sum(dim=(1, 2))).squeeze(-1)
+        
+        is_decode = MyCustomMixtral.running_sequences and MyCustomMixtral.running_sequences[0].stage == "decode"
 
-        selected_expert_indices = torch.where(expert_mask.sum(dim=(1, 2)) > 0)[0]
-        is_decode = False
-        for expert_idx in selected_expert_indices:
-            expert_layer = self.experts[expert_idx]
-            idx, top_x = torch.where(expert_mask[expert_idx])
-
-            current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
-            
-             
-            if MyCustomMixtral.running_sequences and MyCustomMixtral.running_sequences[0].stage == "decode":
-                is_decode = True
-                token_indices = [int(idx) for idx in top_x.tolist()]
-                
+        if is_decode:
+            for expert_idx in selected_expert_indices:
+                idx, top_x = torch.where(expert_mask[expert_idx])
+                current_state = hidden_states[top_x]
+                token_indices = top_x.tolist()
                 selected_sequences = [MyCustomMixtral.running_sequences[idx] for idx in token_indices]
                 
-                for i, token_idx in enumerate(token_indices):
-                    seq = MyCustomMixtral.running_sequences[token_idx]
-                    seq.cached_hidden_state = current_state[i]
-                    # seq.cached_routing_weight = routing_weights[token_idx]
-
-                for seq in selected_sequences:
+                # Batch sequence updates
+                for seq, state in zip(selected_sequences, current_state):
+                    seq.cached_hidden_state = state
                     self.queues[expert_idx].enqueue(seq)
-            else:
-                current_hidden_states = expert_layer(current_state)
-                final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))
-                
-        if is_decode:
+            
             MyCustomMixtral.running_sequences.clear()
-
-            final_hidden_states = torch.zeros(
-                (0, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
-            )
+            states_list = []
+            sequences_list = []
 
             for expert_idx in range(self.num_experts):
-                if self.queues[expert_idx].size() >= 4:
-                    expert_layer = self.experts[expert_idx]
+                if self.queues[expert_idx].size() >= 8:
+                    expert_sequences = []
                     current_states = []
-                    # new_routing_weights = []
-
-                    for _ in range(self.queues[expert_idx].size()):
+                    
+                    while self.queues[expert_idx].size() > 0:
                         seq = self.queues[expert_idx].dequeue()
                         current_states.append(seq.cached_hidden_state)
-                        # new_routing_weights.append(seq.cached_routing_weight)
-                        MyCustomMixtral.running_sequences.append(seq)
-                        # seq.cached_hidden_state = None
-                        # seq.cached_routing_weight = None
-
+                        expert_sequences.append(seq)
+                    
                     if current_states:
-                        current_states = torch.stack(current_states, dim=0).to(hidden_states.device)
-                        current_hidden_states = expert_layer(current_states)
-                        final_hidden_states = torch.cat((final_hidden_states, current_hidden_states.to(hidden_states.dtype)), dim=0)
-
+                        states = torch.stack(current_states)
+                        states_list.append((expert_idx, states))
+                        sequences_list.extend(expert_sequences)
+            
+            # Process expert computations
+            final_states = []
+            for expert_idx, states in states_list:
+                expert_output = self.experts[expert_idx](states)
+                final_states.append(expert_output)
+            
+            MyCustomMixtral.running_sequences.extend(sequences_list)
+            final_hidden_states = torch.cat(final_states) if final_states else torch.zeros(
+                (0, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
+            )
             batch_size = len(MyCustomMixtral.running_sequences)
+            
+        else:
+            # Process non-decode mode more efficiently
+            for expert_idx in selected_expert_indices:
+                idx, top_x = torch.where(expert_mask[expert_idx])
+                current_state = hidden_states[top_x]
+                current_hidden_states = self.experts[expert_idx](current_state)
+                final_hidden_states.index_add_(0, top_x, current_hidden_states)
 
-                                            
-        final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
-        return final_hidden_states, router_logits
+        return final_hidden_states.view(batch_size, sequence_length, hidden_dim), router_logits
 
 
 class MyMixtralDecoderLayer(MixtralDecoderLayer):
-    counter = 0
     def __init__(self, config: MixtralConfig, layer_idx: int):
-        super().__init__(config ,layer_idx)
+        super().__init__(config, layer_idx)
 
     def forward(
         self,
@@ -114,14 +116,12 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
         cache_position: Optional[torch.LongTensor] = None,
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        # MyMixtralDecoderLayer.counter += 1
-        # print(f"Layer {MyMixtralDecoderLayer.counter % 32}")
+
         residual = hidden_states
 
-        # Skip the self-attention layer if the hidden_states is empty
+        hidden_states = self.input_layernorm(hidden_states)
+
         if MyCustomMixtral.running_sequences:
-            hidden_states = self.input_layernorm(hidden_states)
-        
             hidden_states, self_attn_weights, present_key_value = self.self_attn(
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
@@ -131,37 +131,38 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
                 use_cache=use_cache,
                 cache_position=cache_position,
             )
-        hidden_states = residual + hidden_states
-
-        # Fully Connected
-        residual = hidden_states
-        
-         
-        hidden_states = self.post_attention_layernorm(hidden_states)
         else:
             present_key_value = None
-        
-        
-        # [Added] Caching the residual for the sequence
-        for i, seq in enumerate(MyCustomMixtral.running_sequences):
-            seq.cached_residual = residual[i]
-            splited_kv_cache = present_key_value.split_kv_cache(len(MyCustomMixtral.running_sequences))
-            seq.kv_cache = splited_kv_cache[i]
-        
-        hidden_states, router_logits = self.block_sparse_moe(hidden_states)
-        
-        # [Added] Restore the residual for the sequence
-        residual = torch.empty_like(hidden_states)
-        for i, seq in enumerate(MyCustomMixtral.running_sequences):
-            residual[i] = seq.cached_residual
-        
+
         hidden_states = residual + hidden_states
 
+        residual = hidden_states
+
+        hidden_states = self.post_attention_layernorm(hidden_states)
+
+        if MyCustomMixtral.running_sequences:
+            cached_residuals = residual.clone()
+
+            if use_cache:
+                splited_kv_cache = present_key_value.split_kv_cache(len(MyCustomMixtral.running_sequences))
+            else:
+                splited_kv_cache = [None] * len(MyCustomMixtral.running_sequences)
+
+            for seq, cached_residual, kv_cache in zip(MyCustomMixtral.running_sequences, cached_residuals, splited_kv_cache):
+                seq.cached_residual = cached_residual
+                seq.kv_cache = kv_cache
+
+        hidden_states, router_logits = self.block_sparse_moe(hidden_states)
+
+        if MyCustomMixtral.running_sequences:
+            residual = torch.stack([seq.cached_residual for seq in MyCustomMixtral.running_sequences], dim=0)
+            hidden_states = residual + hidden_states
+
         outputs = (hidden_states,)
-         
+
         if output_attentions:
             outputs += (self_attn_weights,)
-        
+
         if use_cache:
             outputs += (present_key_value,)
 
@@ -169,6 +170,128 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
             outputs += (router_logits,)
 
         return outputs
+
+class MyMixtralAttention(nn.Module):
+    """
+    Multi-headed attention from 'Attention Is All You Need' paper. Modified to use sliding window attention: Longformer
+    and "Generating Long Sequences with Sparse Transformers".
+    """
+
+    def __init__(self, config: MixtralConfig, layer_idx: Optional[int] = None):
+        super().__init__()
+        self.config = config
+        self.layer_idx = layer_idx
+        if layer_idx is None:
+            logger.warning_once(
+                f"Instantiating {self.__class__.__name__} without passing a `layer_idx` is not recommended and will "
+                "lead to errors during the forward call if caching is used. Please make sure to provide a `layer_idx` "
+                "when creating this class."
+            )
+
+        self.hidden_size = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.hidden_size // self.num_heads
+        self.num_key_value_heads = config.num_key_value_heads
+        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        self.max_position_embeddings = config.max_position_embeddings
+        self.rope_theta = config.rope_theta
+        self.is_causal = True
+        self.attention_dropout = config.attention_dropout
+
+        if (self.head_dim * self.num_heads) != self.hidden_size:
+            raise ValueError(
+                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
+                f" and `num_heads`: {self.num_heads})."
+            )
+        self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
+        self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=False)
+
+        self.rotary_emb = MixtralRotaryEmbedding(
+            self.head_dim,
+            max_position_embeddings=self.max_position_embeddings,
+            base=self.rope_theta,
+        )
+
+    def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
+        return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Cache] = None,
+        output_attentions: bool = False,
+        use_cache: bool = False,
+        cache_position: Optional[torch.LongTensor] = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        bsz, q_len, _ = hidden_states.size()
+
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
+        value_states = self.v_proj(hidden_states)
+
+        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+
+        kv_seq_len = key_states.shape[-2]
+        if past_key_value is not None:
+            if self.layer_idx is None:
+                raise ValueError(
+                    f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
+                    "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
+                    "with a layer index."
+                )
+            kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
+        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+
+        if past_key_value is not None:
+            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
+            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+        # repeat k/v heads if n_kv_heads < n_heads
+        key_states = repeat_kv(key_states, self.num_key_value_groups)
+        value_states = repeat_kv(value_states, self.num_key_value_groups)
+
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+
+        if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
+            raise ValueError(
+                f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
+                f" {attn_weights.size()}"
+            )
+
+        if attention_mask is not None:  # no matter the length, we just slice it
+            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+            attn_weights = attn_weights + causal_mask
+
+        # upcast attention to fp32
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
+        attn_output = torch.matmul(attn_weights, value_states)
+
+        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+            raise ValueError(
+                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+                f" {attn_output.size()}"
+            )
+
+        attn_output = attn_output.transpose(1, 2).contiguous()
+        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
+
+        attn_output = self.o_proj(attn_output)
+
+        if not output_attentions:
+            attn_weights = None
+
+        return attn_output, attn_weights, past_key_value
+
+
+
 
 class MixtralModel(MixtralModel):
     def __init__(self, config):
@@ -249,7 +372,6 @@ class MixtralModel(MixtralModel):
                 if output_hidden_states:
                     all_hidden_states += (hidden_states,)
                     
-
                 if self.gradient_checkpointing and self.training:
                     layer_outputs = self._gradient_checkpointing_func(
                         decoder_layer.__call__,
@@ -265,7 +387,7 @@ class MixtralModel(MixtralModel):
                 else:
                     if MyCustomMixtral.running_sequences and MyCustomMixtral.running_sequences[0].stage == "decode":
                         past_key_values = DynamicCache.merge_kv_caches([seq.kv_cache for seq in MyCustomMixtral.running_sequences])
-                    
+                        
                     layer_outputs = decoder_layer(
                         hidden_states,
                         attention_mask=causal_mask,
@@ -324,12 +446,13 @@ class MyCustomMixtral(MixtralForCausalLM):
         for i in range(config.num_hidden_layers):
             self.model.layers[i] = MyMixtralDecoderLayer(config, i)
             self.model.layers[i].block_sparse_moe = MyMixtralSparseMoeBlock(config)
+            self.model.layers[i].self_attn = MyMixtralAttention(config, i)
         
     def forward(self, batch: Batch, **kwargs):
         if not hasattr(self, 'forward_call_count'):
             self.forward_call_count = 0
         self.forward_call_count += 1
-        print(f"Forward call count: {self.forward_call_count}")
+        # print(f"Forward call count: {self.forward_call_count}")
         MyCustomMixtral.running_sequences = batch.sequences
         input_ids_list, attention_mask_list, past_key_values_list = batch.model_inputs.get_all_inputs()
         

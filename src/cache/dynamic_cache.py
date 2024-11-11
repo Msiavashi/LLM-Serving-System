@@ -29,18 +29,58 @@ class DynamicCacheEx(DynamicCache):
     @classmethod
     def merge_kv_caches(cls, caches: List["DynamicCacheEx"]) -> "DynamicCacheEx":
         """
-        Merges a list of MyDynamicCache instances into a single MyDynamicCache instance.
-        
-        Parameters:
-            caches (List[MyDynamicCache]): A list of MyDynamicCache instances to be merged.
-        
-        Returns:
-            MyDynamicCache: A new MyDynamicCache instance containing the merged KV caches.
+        Merges KV caches with GPU optimization.
         """
         merged_cache = cls()
-        if caches and caches[0] is not None:
-            for layer_idx in range(len(caches[0])):
-                layer_keys = torch.cat([cache.key_cache[layer_idx] for cache in caches], dim=0)
-                layer_values = torch.cat([cache.value_cache[layer_idx] for cache in caches], dim=0)
-                merged_cache.update(layer_keys, layer_values, layer_idx)
+        if not caches or caches[0] is None:
+            return merged_cache
+
+        # Pre-transfer caches to GPU once
+        for cache in caches:
+            for layer_idx in range(len(cache)):
+                if cache.key_cache[layer_idx].device.type != 'cuda':
+                    cache.key_cache[layer_idx] = cache.key_cache[layer_idx].cuda()
+                if cache.value_cache[layer_idx].device.type != 'cuda':
+                    cache.value_cache[layer_idx] = cache.value_cache[layer_idx].cuda()
+
+        for layer_idx in range(len(caches[0])):
+            # Get max lengths once per layer
+            layer_keys_list = [cache.key_cache[layer_idx] for cache in caches]
+            layer_values_list = [cache.value_cache[layer_idx] for cache in caches]
+            
+            max_key_len = max(tensor.shape[2] for tensor in layer_keys_list)
+            max_value_len = max(tensor.shape[2] for tensor in layer_values_list)
+            # Batch padding operations on GPU
+            padded_keys = torch.cat([
+                torch.nn.functional.pad(tensor, (0, 0, 0, max_key_len - tensor.shape[2]))
+                for tensor in layer_keys_list
+            ], dim=0)
+            
+            padded_values = torch.cat([
+                torch.nn.functional.pad(tensor, (0, 0, 0, max_value_len - tensor.shape[2]))
+                for tensor in layer_values_list
+            ], dim=0)
+            
+            merged_cache.update(padded_keys, padded_values, layer_idx)
+            
         return merged_cache
+
+
+    # @classmethod
+    # def merge_kv_caches(cls, caches: List["DynamicCacheEx"]) -> "DynamicCacheEx":
+    #     """
+    #     Merges a list of MyDynamicCache instances into a single MyDynamicCache instance.
+        
+    #     Parameters:
+    #         caches (List[MyDynamicCache]): A list of MyDynamicCache instances to be merged.
+        
+    #     Returns:
+    #         MyDynamicCache: A new MyDynamicCache instance containing the merged KV caches.
+    #     """
+    #     merged_cache = cls()
+    #     if caches or caches[0] is not None:
+    #         for layer_idx in range(len(caches[0])):
+    #             layer_keys = torch.cat([cache.key_cache[layer_idx] for cache in caches], dim=0)
+    #             layer_values = torch.cat([cache.value_cache[layer_idx] for cache in caches], dim=0)
+    #             merged_cache.update(layer_keys, layer_values, layer_idx)
+    #     return merged_cache

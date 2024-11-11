@@ -9,7 +9,7 @@ class FCFSQueue(BaseQueue):
     def dequeue(self):
         if self.is_empty():
             raise IndexError("Dequeue from an empty queue.")
-        return self.queue.popleft()
+        return self.queue.pop(0)
 
     def peek(self):
         if self.is_empty():

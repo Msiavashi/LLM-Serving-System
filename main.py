@@ -34,24 +34,52 @@ def initialize_model_and_tokenizer():
 def usage_example():
     model, tokenizer = initialize_model_and_tokenizer()
     prompts = [
-        "What is the meaning of life?", 
-    ] * 128
-    print(len(prompts))
-    # random.shuffle(prompts)
+        "Tell me a story about a brave knight.",
+        "What are the benefits of a healthy diet?",
+        "Explain the theory of relativity in simple terms.",
+        "How do airplanes stay in the air?",
+        "What is the capital of France?",
+        "Describe the process of photosynthesis.",
+        "What are the main causes of climate change?",
+        "How does blockchain technology work?",
+        "What are the symptoms of the common cold?",
+        "Explain the concept of artificial intelligence.",
+        "What is the history of the internet?",
+        "How do you make a perfect cup of coffee?",
+        "What are the different types of renewable energy?",
+        "Describe the life cycle of a butterfly.",
+        "What are the key principles of democracy?",
+        "How do you play the game of chess?",
+        "What is the significance of the Great Wall of China?",
+        "Explain the process of human digestion.",
+        "What are the benefits of regular exercise?",
+        "How does the stock market work?",
+        "What is the importance of mental health?",
+        "Describe the structure of the human brain.",
+        "What are the different types of clouds?",
+        "How do you bake a chocolate cake?",
+        "What is the role of the United Nations?",
+        "Explain the concept of quantum computing.",
+        "What are the main functions of the human liver?",
+        "How do you grow a vegetable garden?",
+        "What is the history of the Roman Empire?",
+        "Describe the process of cell division.",
+        "What are the benefits of learning a second language?",
+        "How does the immune system protect the body?"
+    ] * 4
+    
+    random.shuffle(prompts)
     
     scheduler = Scheduler(model, tokenizer)
 
-    # Add sequences to the queue
     for prompt in prompts:
         scheduler.add_sequence_to_queue(prompt)
     
-    # Run scheduler
     results = scheduler.run_scheduler()
 
-    # Retrieve and print results
     for seq in results:
         generated_text = seq.get_generated_text(tokenizer)
-        # print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
+        print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
 
 
 if __name__ == "__main__":

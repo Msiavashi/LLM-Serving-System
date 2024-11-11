@@ -4,7 +4,6 @@ import time
 from src.sequence import Sequence
 from src.queues import FCFSQueue as SequenceQueue
 from src.batching.policies import SizeBasedBatchPolicy
-from src.performance_metrics import PerformanceMetrics
 
 class Scheduler:
     def __init__(self, model, tokenizer, batch_size=32):
@@ -13,7 +12,6 @@ class Scheduler:
         self.sequence_queue = SequenceQueue()
         self.batch_policy = SizeBasedBatchPolicy(batch_size, self.sequence_queue)
         self.num_iterations = 100
-        self.metrics = PerformanceMetrics()
 
     def add_sequence_to_queue(self, prompt, stage="prefill"):
         seq = Sequence(prompt, self.tokenizer, stage)
@@ -21,6 +19,8 @@ class Scheduler:
          
     def run_scheduler(self):
         finished_sequences = []
+        seen_sequences = set()
+        
         while not self.sequence_queue.is_empty():
             batch = self.batch_policy.get_next_batch()
              
@@ -29,16 +29,23 @@ class Scheduler:
             
             with torch.no_grad():
                 for i in range(self.num_iterations):
-                    stage = "prefill" if i == 0 else "decode"
                     start_time = time.time()
-                    batch = self.model(batch=batch, use_cache=True)
+                    output_batch = self.model(batch=batch, use_cache=True)
+                    print(f"Output tokens: {output_batch.size()}")
                     end_time = time.time()
-                    tokens_generated = sum(len(seq.input_ids) for seq in batch.sequences) + len(batch.sequences) if stage == "prefill" else len(batch.sequences)
-                    self.metrics.record_time(start_time, end_time, stage, tokens_generated=tokens_generated)
+                    
+                    tokens_generated = len(output_batch.sequences)
+                    elapsed_time = end_time - start_time
+                    throughput = tokens_generated / elapsed_time if elapsed_time > 0 else 0
+                    print(f"Throughput (tokens/s): {throughput}")
+                    
+                    for seq in output_batch.sequences:
+                        seq_id = id(seq)
+                        if seq_id not in seen_sequences:
+                            seen_sequences.add(seq_id)
+                            finished_sequences.append(seq)
+                    
                     if batch.size() == 0:
                         break
-                    
-                    self.metrics.report_metrics()  # Report metrics every iteration
-            finished_sequences.extend(batch.sequences)
         
         return finished_sequences

@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
 from collections import deque
-from threading import Lock
 
 class BaseQueue(ABC):
     """Abstract base class for queue implementations."""
     
     def __init__(self):
-        self.queue = deque()
+        self.queue = []
     
     @abstractmethod
     def enqueue(self, item):
@@ -30,4 +29,3 @@ class BaseQueue(ABC):
     def size(self):
         """Return the number of items in the queue."""
         return len(self.queue)
-
