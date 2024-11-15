@@ -11,7 +11,7 @@ class Scheduler:
         self.tokenizer = tokenizer
         self.sequence_queue = SequenceQueue()
         self.batch_policy = SizeBasedBatchPolicy(batch_size, self.sequence_queue)
-        self.num_iterations = 100
+        self.num_iterations = 10
 
     def add_sequence_to_queue(self, prompt, stage="prefill"):
         seq = Sequence(prompt, self.tokenizer, stage)
