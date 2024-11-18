@@ -14,15 +14,14 @@ class SizeBasedBatchPolicy(BaseBatchPolicy):
         sequence_queue (Queue): A queue containing sequences to be batched.
     """
 
-    def __init__(self, batch_size, sequence_queue):
+    def __init__(self, batch_size):
         self.batch_size = batch_size
-        self.sequence_queue = sequence_queue
      
     def add_to_batch(self, sequence):
         # Not implemented
         pass
      
-    def get_next_batch(self):
+    def get_next_batch(self, sequence_queue):
         """
         Retrieves the next batch of sequences.
 
@@ -30,6 +29,6 @@ class SizeBasedBatchPolicy(BaseBatchPolicy):
             Batch: The next batch of sequences.
         """
         batch = Batch()
-        while batch.size() < self.batch_size and not self.sequence_queue.is_empty():
-            batch.add_sequence(self.sequence_queue.dequeue())
+        while batch.size() < self.batch_size and not sequence_queue.is_empty():
+            batch.add_sequence(sequence_queue.dequeue())
         return batch

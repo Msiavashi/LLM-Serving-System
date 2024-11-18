@@ -9,43 +9,69 @@ class Scheduler:
     def __init__(self, model, tokenizer, batch_size=32):
         self.model = model
         self.tokenizer = tokenizer
-        self.sequence_queue = SequenceQueue()
-        self.batch_policy = SizeBasedBatchPolicy(batch_size, self.sequence_queue)
-        self.num_iterations = 10
+        self.prefill_queue = SequenceQueue()
+        self.decode_queue = SequenceQueue()
+        self.batch_policy = SizeBasedBatchPolicy(batch_size)
+        # Add throughput tracking
+        self.prefill_stats = {"tokens": 0, "time": 0}
+        self.decode_stats = {"tokens": 0, "time": 0}
 
     def add_sequence_to_queue(self, prompt, stage="prefill"):
         seq = Sequence(prompt, self.tokenizer, stage)
-        self.sequence_queue.enqueue(seq)
-         
+        if stage == "prefill":
+            self.prefill_queue.enqueue(seq)
+        elif stage == "decode":
+            self.decode_queue.enqueue(seq)
+
     def run_scheduler(self):
         finished_sequences = []
-        seen_sequences = set()
+        iteration = 0
         
-        while not self.sequence_queue.is_empty():
-            batch = self.batch_policy.get_next_batch()
+        while not (self.decode_queue.is_empty() and self.prefill_queue.is_empty()):
+            iteration += 1
+            is_decode = not self.decode_queue.is_empty()
+            
+            if is_decode:
+                batch = self.batch_policy.get_next_batch(self.decode_queue)
+            else:
+                batch = self.batch_policy.get_next_batch(self.prefill_queue)
              
             if batch.size() == 0:
                 break
             
+            start_time = time.time()
             with torch.no_grad():
-                for i in range(self.num_iterations):
-                    start_time = time.time()
-                    output_batch = self.model(batch=batch, use_cache=True)
-                    print(f"Output tokens: {output_batch.size()}")
-                    end_time = time.time()
-                    
-                    tokens_generated = len(output_batch.sequences)
-                    elapsed_time = end_time - start_time
-                    throughput = tokens_generated / elapsed_time if elapsed_time > 0 else 0
-                    print(f"Throughput (tokens/s): {throughput}")
-                    
-                    for seq in output_batch.sequences:
-                        seq_id = id(seq)
-                        if seq_id not in seen_sequences:
-                            seen_sequences.add(seq_id)
-                            finished_sequences.append(seq)
-                    
-                    if batch.size() == 0:
-                        break
+                output_batch = self.model(batch=batch, use_cache=True)
+                tokens_generated = len(output_batch.sequences)
+                
+                # Update throughput stats
+                elapsed = time.time() - start_time
+                if is_decode:
+                    self.decode_stats["tokens"] += tokens_generated
+                    self.decode_stats["time"] += elapsed
+                else:
+                    self.prefill_stats["tokens"] += tokens_generated
+                    self.prefill_stats["time"] += elapsed
+                
+                # Print throughput for this iteration
+                phase = "decode" if is_decode else "prefill"
+                print(f"Iteration {iteration} ({phase}): "
+                      f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
+                      f"Batch size = {tokens_generated}")
+                
+                for seq in output_batch.sequences:
+                    seq.sampling_metadata.current_token_count += 1
+                    if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
+                        finished_sequences.append(seq)
+                    else:
+                        self.decode_queue.enqueue(seq)
         
+        # Print final statistics
+        if self.prefill_stats["time"] > 0:
+            print(f"\nPrefill phase average throughput: "
+                  f"{self.prefill_stats['tokens']/self.prefill_stats['time']:.2f} tokens/sec")
+        if self.decode_stats["time"] > 0:
+            print(f"Decode phase average throughput: "
+                  f"{self.decode_stats['tokens']/self.decode_stats['time']:.2f} tokens/sec")
+            
         return finished_sequences

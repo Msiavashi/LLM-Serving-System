@@ -1,10 +1,12 @@
 import torch
 from typing import Literal
+from .sampling import SamplingMetadata
+
 
 class SequenceBase:
     sequence_id = 0
 
-    def __init__(self, prompt, input_ids, attention_mask, generated_tokens=None, kv_cache=None, device="cuda"):
+    def __init__(self, prompt, input_ids, attention_mask, generated_tokens=None, kv_cache=None, device="cuda", sampling_metadata=None):
         self.sequence_id = SequenceBase.sequence_id
         SequenceBase.sequence_id += 1
         self.prompt = prompt
@@ -17,6 +19,7 @@ class SequenceBase:
             self.generated_tokens = torch.empty(0, dtype=self.input_ids.dtype, device=self.device)
         self.kv_cache = kv_cache
         self.stage: Literal["prefill", "decode"] = "prefill"
+        self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=10)
 
     def update(self, next_token_ids, new_kv_cache):
         next_token_ids = next_token_ids.to(self.device)
