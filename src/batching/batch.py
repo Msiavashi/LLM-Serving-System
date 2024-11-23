@@ -50,6 +50,7 @@ class Batch:
                     sequence.attention_mask = F.pad(sequence.attention_mask, (0, padding_length), value=0)
                 input_ids_list.append(sequence.input_ids.unsqueeze(0))
                 attention_mask_list.append(sequence.attention_mask.unsqueeze(0))
+                past_key_values_list.append(sequence.kv_cache)
             else:
                 input_ids_list.append(sequence.generated_tokens[-1:].unsqueeze(0))
                 attention_mask_list.append(sequence.attention_mask[-1:].unsqueeze(0))

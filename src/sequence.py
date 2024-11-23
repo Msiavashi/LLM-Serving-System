@@ -1,5 +1,7 @@
 import torch
 from typing import Literal
+
+from src.cache.dynamic_cache import DynamicCacheEx
 from .sampling import SamplingMetadata
 
 
@@ -17,7 +19,7 @@ class SequenceBase:
             self.generated_tokens = generated_tokens.to(self.device)
         else:
             self.generated_tokens = torch.empty(0, dtype=self.input_ids.dtype, device=self.device)
-        self.kv_cache = kv_cache
+        self.kv_cache = kv_cache if kv_cache is not None else DynamicCacheEx()
         self.stage: Literal["prefill", "decode"] = "prefill"
         self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=10)
 

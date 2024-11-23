@@ -7,10 +7,8 @@ from src.queues import FCFSQueue
 from src.sequence import Sequence
 from src.batching.batch import Batch
 from typing import Optional, Tuple
-from torch import nn
 from transformers.cache_utils import Cache
-from src.cache.dynamic_cache import DynamicCacheEx as DynamicCache
-import math
+from src.cache.dynamic_cache import UnifiedDynamicCache as DynamicCache
 
 
 class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
@@ -63,7 +61,7 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
             sequences_list = []
 
             for expert_idx in range(self.num_experts):
-                if self.queues[expert_idx].size() >= 4:
+                if self.queues[expert_idx].size() >= 1:
                     expert_sequences = []
                     current_states = []
                     
@@ -99,7 +97,6 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
 
         return final_hidden_states.view(batch_size, sequence_length, hidden_dim), router_logits
 
-
 class MyMixtralDecoderLayer(MixtralDecoderLayer):
     def __init__(self, config: MixtralConfig, layer_idx: int):
         super().__init__(config, layer_idx)
@@ -117,7 +114,7 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
         cache_position: Optional[torch.LongTensor] = None,
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-
+        # print(f"Layer index: {self.layer_idx}")
         residual = hidden_states
 
         hidden_states = self.input_layernorm(hidden_states)
@@ -145,10 +142,8 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
             cached_residuals = residual.clone()
 
             if use_cache:
-                if MyCustomMixtral.running_sequences[0].stage == "decode":
-                    splited_kv_cache = present_key_value.split_layer_to_caches(self.layer_idx, [seq.kv_cache for seq in MyCustomMixtral.running_sequences])
-                else:
-                    splited_kv_cache = present_key_value.split_kv_cache(len(MyCustomMixtral.running_sequences))
+                # splited_kv_cache = present_key_value.split_layer_to_caches(self.layer_idx, [seq.kv_cache for seq in MyCustomMixtral.running_sequences])
+                splited_kv_cache = present_key_value.split_kv_cache()
             else:
                 splited_kv_cache = [None] * len(MyCustomMixtral.running_sequences)
 
@@ -174,125 +169,6 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
             outputs += (router_logits,)
 
         return outputs
-
-class MyMixtralAttention(nn.Module):
-    """
-    Multi-headed attention from 'Attention Is All You Need' paper. Modified to use sliding window attention: Longformer
-    and "Generating Long Sequences with Sparse Transformers".
-    """
-
-    def __init__(self, config: MixtralConfig, layer_idx: Optional[int] = None):
-        super().__init__()
-        self.config = config
-        self.layer_idx = layer_idx
-        if layer_idx is None:
-            logger.warning_once(
-                f"Instantiating {self.__class__.__name__} without passing a `layer_idx` is not recommended and will "
-                "lead to errors during the forward call if caching is used. Please make sure to provide a `layer_idx` "
-                "when creating this class."
-            )
-
-        self.hidden_size = config.hidden_size
-        self.num_heads = config.num_attention_heads
-        self.head_dim = self.hidden_size // self.num_heads
-        self.num_key_value_heads = config.num_key_value_heads
-        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-        self.max_position_embeddings = config.max_position_embeddings
-        self.rope_theta = config.rope_theta
-        self.is_causal = True
-        self.attention_dropout = config.attention_dropout
-
-        if (self.head_dim * self.num_heads) != self.hidden_size:
-            raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-                f" and `num_heads`: {self.num_heads})."
-            )
-        self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
-        self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
-        self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=False)
-
-        self.rotary_emb = MixtralRotaryEmbedding(
-            self.head_dim,
-            max_position_embeddings=self.max_position_embeddings,
-            base=self.rope_theta,
-        )
-
-    def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
-        return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
-        output_attentions: bool = False,
-        use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        bsz, q_len, _ = hidden_states.size()
-
-        query_states = self.q_proj(hidden_states)
-        key_states = self.k_proj(hidden_states)
-        value_states = self.v_proj(hidden_states)
-
-        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
-        kv_seq_len = key_states.shape[-2]
-        if past_key_value is not None:
-            if self.layer_idx is None:
-                raise ValueError(
-                    f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
-                    "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
-                    "with a layer index."
-                )
-            kv_seq_len += past_key_value.get_usable_length(kv_seq_len, layer_idx=self.layer_idx)
-        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-
-        if past_key_value is not None:
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
-            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-
-        key_states = repeat_kv(key_states, self.num_key_value_groups)
-        value_states = repeat_kv(value_states, self.num_key_value_groups)
-
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-
-        if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
-            raise ValueError(
-                f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
-                f" {attn_weights.size()}"
-            )
-
-        if attention_mask is not None:
-            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-            attn_weights = attn_weights + causal_mask
-
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
-        attn_output = torch.matmul(attn_weights, value_states)
-
-        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-            raise ValueError(
-                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-                f" {attn_output.size()}"
-            )
-
-        attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
-
-        attn_output = self.o_proj(attn_output)
-
-        if not output_attentions:
-            attn_weights = None
-
-        return attn_output, attn_weights, past_key_value
-
-
 
 class MixtralModel(MixtralModel):
     def __init__(self, config):
@@ -386,8 +262,14 @@ class MixtralModel(MixtralModel):
                         cache_position,
                     )
                 else:
+                    # print(f"Layer: {decoder_layer.layer_idx}, Sequences: {MyCustomMixtral.running_sequences}")
                     if MyCustomMixtral.running_sequences and MyCustomMixtral.running_sequences[0].stage == "decode":
-                        past_key_values = DynamicCache.merge_single_layer([seq.kv_cache for seq in MyCustomMixtral.running_sequences], decoder_layer.layer_idx)
+                        # past_key_values = DynamicCache.merge_single_layer([seq.kv_cache for seq in MyCustomMixtral.running_sequences], decoder_layer.layer_idx)
+                        past_key_values = DynamicCache([seq.kv_cache for seq in MyCustomMixtral.running_sequences])
+                        
+                        # # Check if both past_key_values are equal at layer_idx
+                        # for idx in range(len(past_key_values.key_cache[decoder_layer.layer_idx])):
+                        #     assert torch.allclose(past_key_values.key_cache[decoder_layer.layer_idx][idx], past_key_values_2.key_cache[decoder_layer.layer_idx][0])
                         
                     layer_outputs = decoder_layer(
                         hidden_states,
@@ -418,8 +300,8 @@ class MixtralModel(MixtralModel):
             # add hidden states from the last decoder layer
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
-
-            next_cache = DynamicCache.merge_kv_caches([seq.kv_cache for seq in MyCustomMixtral.running_sequences]) if use_cache else None
+                
+            next_cache = DynamicCache([seq.kv_cache for seq in MyCustomMixtral.running_sequences]) if use_cache else None
             
             if return_legacy_cache:
                 next_cache = next_cache.to_legacy_cache()
@@ -447,13 +329,8 @@ class MyCustomMixtral(MixtralForCausalLM):
         for i in range(config.num_hidden_layers):
             self.model.layers[i] = MyMixtralDecoderLayer(config, i)
             self.model.layers[i].block_sparse_moe = MyMixtralSparseMoeBlock(config)
-            self.model.layers[i].self_attn = MyMixtralAttention(config, i)
         
     def forward(self, batch: Batch, **kwargs):
-        if not hasattr(self, 'forward_call_count'):
-            self.forward_call_count = 0
-        self.forward_call_count += 1
-        print(f"Forward call count: {self.forward_call_count}")
         MyCustomMixtral.running_sequences = batch.sequences
         input_ids_list, attention_mask_list, past_key_values_list = batch.model_inputs.get_all_inputs()
         
@@ -461,16 +338,14 @@ class MyCustomMixtral(MixtralForCausalLM):
         attention_mask = torch.cat(attention_mask_list, dim=0)
         
         if past_key_values_list:
-            past_key_values = DynamicCache.merge_kv_caches(past_key_values_list)
-        else:
-            past_key_values = DynamicCache()
-
+            past_key_values = DynamicCache(past_key_values_list)
+        
         outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
         
         logits = outputs.logits
         kv_cache = outputs.past_key_values
         
-        splited_kv_cache = kv_cache.split_kv_cache(len(MyCustomMixtral.running_sequences))
+        splited_kv_cache = kv_cache.split_kv_cache()
         
         new_batch = Batch(MyCustomMixtral.running_sequences)
         new_batch.update_sequences(logits, splited_kv_cache)
