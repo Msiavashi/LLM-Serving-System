@@ -58,6 +58,7 @@ class UnifiedDynamicCache(DynamicCacheEx):
     def __init__(self, caches: List[DynamicCacheEx] = None):
         self.caches: List[DynamicCacheEx] = caches if caches is not None else []
         super().__init__()
+        self.max_len = 0
         
     def split_kv_cache(self):
         return self.caches
@@ -78,7 +79,7 @@ class UnifiedDynamicCache(DynamicCacheEx):
                 key_list.append(keys)
                 value_list.append(values)
                 max_len = max(max_len, keys.shape[1])
-                
+            self.max_len = max_len
             padded_key_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in key_list]
             padded_value_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in value_list]
             
@@ -97,5 +98,5 @@ class UnifiedDynamicCache(DynamicCacheEx):
         # Cache with size limit -> if the length cache plus the length of the new inputs is larger the maximum cache
         #   length, we will need to evict part of the cache (and thus not all cache is usable)
         usable_lengths = [cache.get_usable_length(new_seq_length, layer_idx) for cache in self.caches]
-        return max(usable_lengths) + 200 if usable_lengths else 0 #TODO: 200 is a magic number, should be replaced with a more general solution
+        return self.max_len + 1 if self.max_len > 0 else max(usable_lengths) + self.max_len 
  
