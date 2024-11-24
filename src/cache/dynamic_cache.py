@@ -55,7 +55,6 @@ class DynamicCacheEx(DynamicCache):
 
 class UnifiedDynamicCache(DynamicCacheEx):
     
-    
     def __init__(self, caches: List[DynamicCacheEx] = None):
         self.caches: List[DynamicCacheEx] = caches if caches is not None else []
         super().__init__()
@@ -72,16 +71,31 @@ class UnifiedDynamicCache(DynamicCacheEx):
         ) -> Tuple[torch.Tensor, torch.Tensor]:
             key_list = []
             value_list = []
+            max_len = 0
+            
             for i, cache in enumerate(self.caches):
                 keys, values = cache.update(key_states[i], value_states[i], layer_idx, cache_kwargs)
                 key_list.append(keys)
                 value_list.append(values)
+                max_len = max(max_len, keys.shape[1])
+                
+            padded_key_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in key_list]
+            padded_value_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in value_list]
             
-            merged_key_states = torch.stack(key_list)
-            merged_value_states = torch.stack(value_list)
+            merged_key_states = torch.stack(padded_key_list)
+            merged_value_states = torch.stack(padded_value_list)
 
             return merged_key_states, merged_value_states
 
     def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
         seq_lengths = [cache.get_seq_length(layer_idx) for cache in self.caches]
         return min(seq_lengths) if seq_lengths else 0
+
+    def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = 0) -> int:
+        """Given the sequence length of the new inputs, returns the usable length of the cache."""
+        # Cache without size limit -> all cache is usable
+        # Cache with size limit -> if the length cache plus the length of the new inputs is larger the maximum cache
+        #   length, we will need to evict part of the cache (and thus not all cache is usable)
+        usable_lengths = [cache.get_usable_length(new_seq_length, layer_idx) for cache in self.caches]
+        return max(usable_lengths) + 200 if usable_lengths else 0 #TODO: 200 is a magic number, should be replaced with a more general solution
+ 
