@@ -61,7 +61,7 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
             sequences_list = []
 
             for expert_idx in range(self.num_experts):
-                if self.queues[expert_idx].size() >= 8:
+                if self.queues[expert_idx].size() >= 1:
                     expert_sequences = []
                     current_states = []
                     

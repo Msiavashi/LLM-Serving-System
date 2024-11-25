@@ -1,8 +1,8 @@
 from transformers import AutoConfig, AutoTokenizer
 from transformers import BitsAndBytesConfig
 import torch
-from src.models.mixtral_model import MyCustomMixtral
-# from src.models.mixtral_queue_model import MyCustomMixtral
+# from src.models.mixtral_model import MyCustomMixtral
+from src.models.mixtral_queue_model import MyCustomMixtral
 from src.schedulers.scheduler import Scheduler
 import random
 
@@ -26,6 +26,8 @@ def initialize_model_and_tokenizer():
         config=config,
         device_map='auto',
         quantization_config=quantization_config,
+        low_cpu_mem_usage=True,
+        torch_dtype=torch.float16,
     )
     
     return model, tokenizer
@@ -209,9 +211,10 @@ def usage_example():
         "What are the different types of literature genres?",
         "Explain the process of desalination.",
         "What are the benefits of regular sleep?",
-    ]
+        "Write a detailed essay on the impact of climate change on global agriculture, including the effects on crop yields, soil health, water availability, and the socio-economic implications for farmers and communities around the world. Discuss potential mitigation strategies and the role of technology in adapting to these changes.",
+    ] * 16
     
-    random.shuffle(prompts)
+    # random.shuffle(prompts)
     
     scheduler = Scheduler(model, tokenizer)
 
@@ -220,9 +223,9 @@ def usage_example():
     
     results = scheduler.run_scheduler()
 
-    for seq in results:
-        generated_text = seq.get_generated_text(tokenizer)
-        print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
+    # for seq in results:
+    #     generated_text = seq.get_generated_text(tokenizer)
+    #     print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
 
 
 if __name__ == "__main__":

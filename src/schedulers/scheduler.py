@@ -57,12 +57,14 @@ class Scheduler:
                 phase = "decode" if is_decode else "prefill"
                 print(f"Iteration {iteration} ({phase}): "
                       f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
-                      f"Batch size = {tokens_generated}")
+                      f"Batch size = {tokens_generated} "
+                      f"Elapsed time = {elapsed:.2f} sec")
                 
                 for seq in output_batch.sequences:
                     seq.sampling_metadata.current_token_count += 1
                     if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
                         finished_sequences.append(seq)
+                        del seq.kv_cache
                     else:
                         self.decode_queue.enqueue(seq)
         

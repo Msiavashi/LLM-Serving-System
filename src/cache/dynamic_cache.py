@@ -93,10 +93,5 @@ class UnifiedDynamicCache(DynamicCacheEx):
         return min(seq_lengths) if seq_lengths else 0
 
     def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = 0) -> int:
-        """Given the sequence length of the new inputs, returns the usable length of the cache."""
-        # Cache without size limit -> all cache is usable
-        # Cache with size limit -> if the length cache plus the length of the new inputs is larger the maximum cache
-        #   length, we will need to evict part of the cache (and thus not all cache is usable)
         usable_lengths = [cache.get_usable_length(new_seq_length, layer_idx) for cache in self.caches]
-        return self.max_len + 1 if self.max_len > 0 else max(usable_lengths) + self.max_len 
- 
+        return self.max_len + 100 if self.max_len > 0 else max(usable_lengths) + 100
