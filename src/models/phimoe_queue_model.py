@@ -12,7 +12,7 @@ from src.queues.fcfs_queue import FCFSQueue
 from src.sequence import Sequence
 
 
-class PhimoeAttention(PhimoeAttention):
+class MyPhimoeAttention(PhimoeAttention):
     def __init__(self, config: PhimoeConfig, layer_idx: Optional[int] = None):
         super().__init__(config, layer_idx)
         
@@ -76,8 +76,6 @@ class PhimoeAttention(PhimoeAttention):
 
         return attn_output, attn_weights, past_key_value
 
-
-
 class MyPhimoeSparseMoeBlock(PhimoeSparseMoeBlock):
     def __init__(self, config):
         super().__init__(config)
@@ -130,7 +128,7 @@ class MyPhimoeSparseMoeBlock(PhimoeSparseMoeBlock):
             sequences_list = []
 
             for expert_idx in range(self.num_experts):
-                if self.queues[expert_idx].size() >= 1:
+                if self.queues[expert_idx].size() >= 4:
                     expert_sequences = []
                     current_states = []
 
@@ -404,8 +402,8 @@ class PhiMoe(PhimoeForCausalLM):
         self.model = PhimoeModel(config)
         for i in range(config.num_hidden_layers):
             self.model.layers[i] = MyPhimoeDecoderLayer(config, i)
-            self.model.layers[i].block_sparse_moe = PhimoeSparseMoeBlock(config)
-            self.model.layers[i].self_attn = PhimoeAttention(config, i)
+            self.model.layers[i].block_sparse_moe = MyPhimoeSparseMoeBlock(config)
+            self.model.layers[i].self_attn = MyPhimoeAttention(config, i)
         
     def forward(self, batch: Batch, **kwargs):
         PhiMoe.running_sequences = batch.sequences
