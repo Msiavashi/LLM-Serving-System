@@ -1,7 +1,7 @@
 from typing import List
 import torch
 from transformers import MixtralForCausalLM
-from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock, MixtralDecoderLayer, MixtralConfig, MixtralRotaryEmbedding, apply_rotary_pos_emb, repeat_kv, MixtralModel, MoeModelOutputWithPast, MixtralAttention
+from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock, MixtralDecoderLayer, MixtralConfig, MixtralModel, MoeModelOutputWithPast
 from torch.nn import functional as F
 from src.queues import FCFSQueue
 from src.sequence import Sequence
