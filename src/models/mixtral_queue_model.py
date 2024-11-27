@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 from transformers.cache_utils import Cache
 from src.cache.dynamic_cache import UnifiedDynamicCache as DynamicCache
 
+import asyncio
 
 class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
     def __init__(self, config):
@@ -17,9 +18,13 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
         self.top_k = 1
         self.queues = [FCFSQueue() for _ in range(self.num_experts)]
     
+    async def process_expert_async(self, expert_idx, states):
+        # Asynchronously execute expert computation on GPU
+        return self.experts[expert_idx](states)
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
-        
+
         # Combine reshape and conditional jitter into one operation
         hidden_states = hidden_states.view(-1, hidden_dim)
         if self.training and self.jitter_noise > 0:
@@ -75,11 +80,12 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
                         states_list.append((expert_idx, states))
                         sequences_list.extend(expert_sequences)
             
-            # Process expert computations
-            final_states = []
-            for expert_idx, states in states_list:
-                expert_output = self.experts[expert_idx](states)
-                final_states.append(expert_output)
+            # Process expert computations asynchronously
+            async def compute_all_experts():
+                tasks = [self.process_expert_async(expert_idx, states) for expert_idx, states in states_list]
+                return await asyncio.gather(*tasks)
+
+            final_states = asyncio.run(compute_all_experts())
             
             MyCustomMixtral.running_sequences.extend(sequences_list)
             final_hidden_states = torch.cat(final_states) if final_states else torch.zeros(
@@ -96,6 +102,7 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
                 final_hidden_states.index_add_(0, top_x, current_hidden_states)
 
         return final_hidden_states.view(batch_size, sequence_length, hidden_dim), router_logits
+
 
 class MyMixtralDecoderLayer(MixtralDecoderLayer):
     def __init__(self, config: MixtralConfig, layer_idx: int):

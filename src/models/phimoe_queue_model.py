@@ -128,7 +128,7 @@ class MyPhimoeSparseMoeBlock(PhimoeSparseMoeBlock):
             sequences_list = []
 
             for expert_idx in range(self.num_experts):
-                if self.queues[expert_idx].size() >= 4:
+                if self.queues[expert_idx].size() >= 1:
                     expert_sequences = []
                     current_states = []
 
