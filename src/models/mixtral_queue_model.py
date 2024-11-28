@@ -11,6 +11,10 @@ from src.batching.batch import Batch
 from typing import Optional, Tuple
 from transformers.cache_utils import Cache
 from src.cache.dynamic_cache import UnifiedDynamicCache as DynamicCache
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+GLOBAL_THREAD_POOL = ThreadPoolExecutor(max_workers=8)
+
 
 class MixtralBlockSparseTop2MLP(nn.Module):
     def __init__(self, config: MixtralConfig):
@@ -29,6 +33,7 @@ class MixtralBlockSparseTop2MLP(nn.Module):
         current_hidden_states = self.w2(current_hidden_states)
         return current_hidden_states
     
+
 class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
     def __init__(self, config):
         super().__init__(config)
@@ -36,11 +41,12 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
         self.queues = [FCFSQueue() for _ in range(self.num_experts)]
         del self.experts
         self.experts = nn.ModuleList([MixtralBlockSparseTop2MLP(config) for _ in range(self.num_experts)])
+        streams = [torch.cuda.Stream() for _ in range(self.num_experts)]
 
-    
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
-        
+
         # Combine reshape and conditional jitter into one operation
         hidden_states = hidden_states.view(-1, hidden_dim)
         if self.training and self.jitter_noise > 0:
@@ -95,13 +101,17 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
                         states = torch.stack(current_states)
                         states_list.append((expert_idx, states))
                         sequences_list.extend(expert_sequences)
-            
-            # Process expert computations
+
+            # Process expert computations in parallel
             final_states = []
-            for expert_idx, states in states_list:
-                expert_output = self.experts[expert_idx](states)
+            futures = {
+                GLOBAL_THREAD_POOL.submit(self.experts[expert_idx], states): expert_idx
+                for expert_idx, states in states_list
+            }
+            for future in as_completed(futures):
+                expert_output = future.result()
                 final_states.append(expert_output)
-            
+
             MyCustomMixtral.running_sequences.extend(sequences_list)
             final_hidden_states = torch.cat(final_states) if final_states else torch.zeros(
                 (0, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
@@ -109,14 +119,21 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
             batch_size = len(MyCustomMixtral.running_sequences)
             
         else:
-            # Process non-decode mode more efficiently
+            # Process non-decode mode more efficiently in parallel
+            futures = {}
             for expert_idx in selected_expert_indices:
                 idx, top_x = torch.where(expert_mask[expert_idx])
                 current_state = hidden_states[top_x]
-                current_hidden_states = self.experts[expert_idx](current_state)
+                with torch.cuda.stream(self.streams[expert_idx]):
+                    futures[GLOBAL_THREAD_POOL.submit(self.experts[expert_idx], current_state)] = (expert_idx, top_x)
+
+            for future in as_completed(futures):
+                expert_idx, top_x = futures[future]
+                current_hidden_states = future.result()
                 final_hidden_states.index_add_(0, top_x, current_hidden_states)
 
         return final_hidden_states.view(batch_size, sequence_length, hidden_dim), router_logits
+
 
 class MyMixtralDecoderLayer(MixtralDecoderLayer):
     def __init__(self, config: MixtralConfig, layer_idx: int):

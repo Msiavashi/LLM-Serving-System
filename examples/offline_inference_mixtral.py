@@ -9,7 +9,6 @@ import torch
 # from src.models.mixtral_model import MyCustomMixtral
 from src.models.mixtral_queue_model import MyCustomMixtral
 from src.schedulers.scheduler import Scheduler
-import random
 
 
 def initialize_model_and_tokenizer():
