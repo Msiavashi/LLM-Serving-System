@@ -1,6 +1,8 @@
 from typing import List
 import torch
+from torch import nn
 from transformers import MixtralForCausalLM
+from transformers.activations import ACT2FN
 from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock, MixtralDecoderLayer, MixtralConfig, MixtralModel, MoeModelOutputWithPast
 from torch.nn import functional as F
 from src.queues import FCFSQueue
@@ -10,12 +12,31 @@ from typing import Optional, Tuple
 from transformers.cache_utils import Cache
 from src.cache.dynamic_cache import UnifiedDynamicCache as DynamicCache
 
+class MixtralBlockSparseTop2MLP(nn.Module):
+    def __init__(self, config: MixtralConfig):
+        super().__init__()
+        self.ffn_dim = config.intermediate_size
+        self.hidden_dim = config.hidden_size
 
+        self.w1 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False)
+        self.w2 = nn.Linear(self.ffn_dim, self.hidden_dim, bias=False)
+        self.w3 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False)
+
+        self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(self, hidden_states):
+        current_hidden_states = self.act_fn(self.w1(hidden_states)) * self.w3(hidden_states)
+        current_hidden_states = self.w2(current_hidden_states)
+        return current_hidden_states
+    
 class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
     def __init__(self, config):
         super().__init__(config)
         self.top_k = 1
         self.queues = [FCFSQueue() for _ in range(self.num_experts)]
+        del self.experts
+        self.experts = nn.ModuleList([MixtralBlockSparseTop2MLP(config) for _ in range(self.num_experts)])
+
     
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
