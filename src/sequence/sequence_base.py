@@ -1,9 +1,8 @@
 import torch
-from typing import Literal
 
 from src.cache.dynamic_cache import DynamicCacheEx
-from .sampling import SamplingMetadata
-
+from src.samplers.sampling_metadata import SamplingMetadata
+from .stage import Stage
 
 class SequenceBase:
     sequence_id = 0
@@ -20,7 +19,7 @@ class SequenceBase:
         else:
             self.generated_tokens = torch.empty(0, dtype=self.input_ids.dtype, device=self.device)
         self.kv_cache = kv_cache if kv_cache is not None else DynamicCacheEx()
-        self.stage: Literal["prefill", "decode"] = "prefill"
+        self.stage: Stage = Stage.PREFILL
         self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=10)
 
     def update(self, next_token_ids, new_kv_cache):
@@ -41,20 +40,3 @@ class SequenceBase:
 
     def __repr__(self):
         return str(self)
-
-class GenerationConfig:
-    def __init__(self, max_tokens=10):
-        self.max_tokens = max_tokens
-
-class Sequence(SequenceBase):
-    def __init__(self, prompt, tokenizer, generation_config: GenerationConfig = None, device="cuda"):
-        self.tokenizer = tokenizer
-        self.generation_config = generation_config
-        self.cached_hidden_state = None
-        self.routing_weights_cache = {}
-        self.expert_outputs_cache = {}
-        self.cached_residual = None
-        inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(device)
-        input_ids = inputs.input_ids
-        attention_mask = inputs.attention_mask
-        super().__init__(prompt, input_ids, attention_mask, kv_cache=None, device=device)

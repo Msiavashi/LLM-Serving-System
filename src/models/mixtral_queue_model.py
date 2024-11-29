@@ -4,7 +4,7 @@ from transformers import MixtralForCausalLM
 from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock, MixtralDecoderLayer, MixtralConfig, MixtralModel, MoeModelOutputWithPast
 from torch.nn import functional as F
 from src.queues import FCFSQueue
-from src.sequence import Sequence
+from src.sequence.sequence import Sequence
 from src.batching.batch import Batch
 from typing import Optional, Tuple
 from transformers.cache_utils import Cache
