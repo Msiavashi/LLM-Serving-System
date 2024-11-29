@@ -1,6 +1,6 @@
 import torch
 
-from src.cache.dynamic_cache import DynamicCacheEx
+from transformers.cache_utils import DynamicCache
 from src.samplers.sampling_metadata import SamplingMetadata
 from .stage import Stage
 
@@ -12,13 +12,13 @@ class SequenceBase:
         SequenceBase.sequence_id += 1
         self.prompt = prompt
         self.device = device
-        self.input_ids = input_ids.squeeze(0).to(self.device)  # Shape: [sequence_length]
-        self.attention_mask = attention_mask.squeeze(0).to(self.device)  # Shape: [sequence_length]
+        self.input_ids = input_ids.squeeze(0).to(self.device)
+        self.attention_mask = attention_mask.squeeze(0).to(self.device)
         if generated_tokens is not None:
             self.generated_tokens = generated_tokens.to(self.device)
         else:
             self.generated_tokens = torch.empty(0, dtype=self.input_ids.dtype, device=self.device)
-        self.kv_cache = kv_cache if kv_cache is not None else DynamicCacheEx()
+        self.kv_cache = kv_cache if kv_cache is not None else DynamicCache()
         self.stage: Stage = Stage.PREFILL
         self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=10)
 

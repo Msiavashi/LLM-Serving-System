@@ -1,5 +1,11 @@
+"""
+This file contains the implementation of the DynamicCacheEx class, which is a subclass of the DynamicCache class in the transformers library. 
+The DynamicCacheEx is not used in the code and may be removed in version 1.2.0. 
+However, it is retained here as a utility for future use.
+"""
+
 import torch
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List
 from transformers.cache_utils import DynamicCache
 
 class DynamicCacheEx(DynamicCache):
@@ -52,46 +58,3 @@ class DynamicCacheEx(DynamicCache):
     @staticmethod
     def _pad_to_max_length(tensors: List[torch.Tensor], max_len: int) -> List[torch.Tensor]:
         return [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[2])) for tensor in tensors]
-
-class UnifiedDynamicCache(DynamicCacheEx):
-    
-    def __init__(self, caches: List[DynamicCacheEx] = None):
-        self.caches: List[DynamicCacheEx] = caches if caches is not None else []
-        super().__init__()
-        self.max_len = 0
-        
-    def split_kv_cache(self):
-        return self.caches
-    
-    def update(
-            self,
-            key_states: torch.Tensor,
-            value_states: torch.Tensor,
-            layer_idx: int,
-            cache_kwargs: Optional[Dict[str, Any]] = None,
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
-            key_list = []
-            value_list = []
-            max_len = 0
-            
-            for i, cache in enumerate(self.caches):
-                keys, values = cache.update(key_states[i], value_states[i], layer_idx, cache_kwargs)
-                key_list.append(keys)
-                value_list.append(values)
-                max_len = max(max_len, keys.shape[1])
-            self.max_len = max_len
-            padded_key_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in key_list]
-            padded_value_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in value_list]
-            
-            merged_key_states = torch.stack(padded_key_list)
-            merged_value_states = torch.stack(padded_value_list)
-
-            return merged_key_states, merged_value_states
-
-    def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
-        seq_lengths = [cache.get_seq_length(layer_idx) for cache in self.caches]
-        return min(seq_lengths) if seq_lengths else 0
-
-    def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = 0) -> int:
-        usable_lengths = [cache.get_usable_length(new_seq_length, layer_idx) for cache in self.caches]
-        return self.max_len + 100 if self.max_len > 0 else max(usable_lengths) + 100
