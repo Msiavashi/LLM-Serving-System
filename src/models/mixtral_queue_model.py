@@ -14,7 +14,7 @@ from src.cache.dynamic_cache import UnifiedDynamicCache as DynamicCache
 class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
     def __init__(self, config):
         super().__init__(config)
-        self.top_k = 1
+        # self.top_k = 1
         self.queues = [FCFSQueue() for _ in range(self.num_experts)]
     
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -60,28 +60,38 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
             states_list = []
             sequences_list = []
 
+            # Process queues that have enough sequences
             for expert_idx in range(self.num_experts):
-                if self.queues[expert_idx].size() >= 1:
+                queue = self.queues[expert_idx]
+                if queue.size() >= 1:
+                    # Batch process sequences in queue
                     expert_sequences = []
-                    current_states = []
+                    states = []
                     
-                    while self.queues[expert_idx].size() > 0:
-                        seq = self.queues[expert_idx].dequeue()
-                        current_states.append(seq.cached_hidden_state)
+                    while queue.size() > 0:
+                        seq = queue.dequeue()
+                        states.append(seq.cached_hidden_state)
                         expert_sequences.append(seq)
                     
-                    if current_states:
-                        states = torch.stack(current_states)
-                        states_list.append((expert_idx, states))
+                    if states:
+                        # Process batched states through expert
+                        batched_states = torch.stack(states)
+                        expert_output = self.experts[expert_idx](batched_states)
+                        
+                        # Store outputs in sequence caches
+                        for seq, output in zip(expert_sequences, expert_output):
+                            seq.expert_outputs_cache[expert_idx] = output
                         sequences_list.extend(expert_sequences)
-            
-            # Process expert computations
+
+            # Aggregate final states for completed sequences
             final_states = []
-            for expert_idx, states in states_list:
-                expert_output = self.experts[expert_idx](states)
-                final_states.append(expert_output)
+            for seq in sequences_list:
+                if len(seq.expert_outputs_cache) == self.top_k:
+                    output = sum(seq.expert_outputs_cache.values())
+                    final_states.append(output)
+                    seq.expert_outputs_cache.clear()
+                    MyCustomMixtral.running_sequences.append(seq)
             
-            MyCustomMixtral.running_sequences.extend(sequences_list)
             final_hidden_states = torch.cat(final_states) if final_states else torch.zeros(
                 (0, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
             )
