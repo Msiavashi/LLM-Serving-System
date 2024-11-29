@@ -15,9 +15,30 @@ class ModelInputs:
 
 class Batch:
     def __init__(self, sequences: List["Sequence"] = None):
-        self.sequences = sequences or []
+        self._sequences = sequences or []
         self._model_inputs = ModelInputs([], [], [])
         self._processor = SequenceProcessor()
+        
+    @property
+    def sequences(self) -> List["Sequence"]:
+        return self._sequences
+
+    @sequences.setter
+    def sequences(self, sequences: List["Sequence"]) -> None:
+        self._sequences = sequences
+        
+    def clear(self) -> None:
+        self._sequences = []
+        self._model_inputs = ModelInputs([], [], [])
+    
+    def is_decode(self) -> bool:
+        return self.sequences and self.sequences[0].stage == Stage.DECODE
+    
+    def is_prefill(self) -> bool:
+        return self.sequences and self.sequences[0].stage == Stage.PREFILL
+    
+    def get_stage(self) -> Stage:
+        return self.sequences[0].stage if self.sequences else None
 
     def add_sequence(self, sequence: Union["Sequence", List["Sequence"]]) -> None:
         if isinstance(sequence, list):
@@ -27,6 +48,9 @@ class Batch:
 
     def size(self) -> int:
         return len(self.sequences)
+    
+    def is_empty(self) -> bool:
+        return not self.sequences
 
     def _preprocess_sequences(self) -> None:
         if not self.sequences:
