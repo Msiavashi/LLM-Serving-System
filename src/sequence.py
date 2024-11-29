@@ -51,7 +51,8 @@ class Sequence(SequenceBase):
         self.tokenizer = tokenizer
         self.generation_config = generation_config
         self.cached_hidden_state = None
-        self.cached_routing_weight = None
+        self.routing_weights_cache = {}
+        self.expert_outputs_cache = {}
         self.cached_residual = None
         inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(device)
         input_ids = inputs.input_ids
