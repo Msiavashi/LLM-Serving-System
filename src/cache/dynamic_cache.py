@@ -5,6 +5,11 @@ from transformers.cache_utils import DynamicCache
 class DynamicCacheEx(DynamicCache):
     def __init__(self):
         super().__init__()
+        
+    def transfer_layer_to(self, layer_idx, device: torch.device):
+        self.key_cache[layer_idx] = k = self.key_cache[layer_idx].to(device)
+        self.value_cache[layer_idx] = v = self.value_cache[layer_idx].to(device)
+        return k, v
     
     def get_cache_size_at_layer(self, layer_idx: int, unit="mb"):
         return self._convert_size(self._calculate_size([self.key_cache[layer_idx], self.value_cache[layer_idx]]), unit)

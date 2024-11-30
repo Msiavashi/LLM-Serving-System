@@ -50,3 +50,6 @@ class UnifiedDynamicCache(DynamicCache):
     
     def get_cache_size_at_layer(self, layer_idx, unit="mb"):
          return sum(cache.get_cache_size_at_layer(layer_idx, unit) for cache in self.caches)
+     
+    def transfer_layer_to(self, layer_idx, device):
+         return [cache.transfer_layer_to(layer_idx, device) for cache in self.caches]

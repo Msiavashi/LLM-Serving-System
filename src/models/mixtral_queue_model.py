@@ -5,7 +5,7 @@ from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock, 
 from torch.nn import functional as F
 from src.mixins.model_input_mixin import ModelInputMixin
 from src.mixins.model_output_mixin import ModelOutputMixin
-from src.mixins.sparse_moe_block_with_queue import SparseMoeBlockWithQueuesMixin
+from src.mixins.sparse_moe_block_with_queue_mixin import SparseMoeBlockWithQueuesMixin
 from src.batching.batch import Batch
 from typing import Optional, Tuple
 from transformers.cache_utils import Cache
