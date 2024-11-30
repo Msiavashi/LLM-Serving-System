@@ -1,10 +1,40 @@
 import torch
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List
 from transformers.cache_utils import DynamicCache
 
 class DynamicCacheEx(DynamicCache):
     def __init__(self):
         super().__init__()
+        
+    def transfer_layer_to(self, layer_idx, device: torch.device):
+        self.key_cache[layer_idx] = k = self.key_cache[layer_idx].to(device)
+        self.value_cache[layer_idx] = v = self.value_cache[layer_idx].to(device)
+        return k, v
+    
+    def get_cache_size_at_layer(self, layer_idx: int, unit="mb"):
+        return self._convert_size(self._calculate_size([self.key_cache[layer_idx], self.value_cache[layer_idx]]), unit)
+        
+    def get_cache_size(self, unit="mb"):
+        caches = [kv for layer in zip(self.key_cache, self.value_cache) for kv in layer]
+        return self._convert_size(self._calculate_size(caches), unit)
+    
+    @staticmethod
+    def _calculate_size(tensors: List[torch.Tensor]) -> int:
+        return sum(tensor.numel() * tensor.element_size() for tensor in tensors)
+    
+    @staticmethod
+    def _convert_size(size: int, unit: str) -> float:
+        unit = unit.lower()
+        if unit == "bytes":
+            return size
+        elif unit == "kb":
+            return size / 1024
+        elif unit == "mb":
+            return size / (1024 ** 2)
+        elif unit == "gb":
+            return size / (1024 ** 3)
+        else:
+            raise ValueError(f"Unsupported unit: {unit}. Use 'bytes', 'KB', 'MB', or 'GB'.")
 
     def split_kv_cache(self, batch_size: int) -> List["DynamicCacheEx"]:
         split_caches = [DynamicCacheEx() for _ in range(batch_size)]
@@ -46,52 +76,10 @@ class DynamicCacheEx(DynamicCache):
 
         keys = torch.stack(padded_keys)
         values = torch.stack(padded_values)
-
+        
         merged_cache.update(keys.reshape(-1, *keys.shape[2:]), values.reshape(-1, *values.shape[2:]), layer_idx)
         
     @staticmethod
     def _pad_to_max_length(tensors: List[torch.Tensor], max_len: int) -> List[torch.Tensor]:
         return [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[2])) for tensor in tensors]
 
-class UnifiedDynamicCache(DynamicCacheEx):
-    
-    def __init__(self, caches: List[DynamicCacheEx] = None):
-        self.caches: List[DynamicCacheEx] = caches if caches is not None else []
-        super().__init__()
-        self.max_len = 0
-        
-    def split_kv_cache(self):
-        return self.caches
-    
-    def update(
-            self,
-            key_states: torch.Tensor,
-            value_states: torch.Tensor,
-            layer_idx: int,
-            cache_kwargs: Optional[Dict[str, Any]] = None,
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
-            key_list = []
-            value_list = []
-            max_len = 0
-            
-            for i, cache in enumerate(self.caches):
-                keys, values = cache.update(key_states[i], value_states[i], layer_idx, cache_kwargs)
-                key_list.append(keys)
-                value_list.append(values)
-                max_len = max(max_len, keys.shape[1])
-            self.max_len = max_len
-            padded_key_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in key_list]
-            padded_value_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in value_list]
-            
-            merged_key_states = torch.stack(padded_key_list)
-            merged_value_states = torch.stack(padded_value_list)
-
-            return merged_key_states, merged_value_states
-
-    def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
-        seq_lengths = [cache.get_seq_length(layer_idx) for cache in self.caches]
-        return min(seq_lengths) if seq_lengths else 0
-
-    def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = 0) -> int:
-        usable_lengths = [cache.get_usable_length(new_seq_length, layer_idx) for cache in self.caches]
-        return self.max_len + 100 if self.max_len > 0 else max(usable_lengths) + 100

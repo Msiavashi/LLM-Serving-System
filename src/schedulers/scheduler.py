@@ -1,7 +1,7 @@
 import torch
 import time
 
-from src.sequence import Sequence
+from src.sequence import Sequence, Stage
 from src.queues import FCFSQueue as SequenceQueue
 from src.batching.policies import SizeBasedBatchPolicy
 
@@ -16,11 +16,11 @@ class Scheduler:
         self.prefill_stats = {"tokens": 0, "time": 0}
         self.decode_stats = {"tokens": 0, "time": 0}
 
-    def add_sequence_to_queue(self, prompt, stage="prefill"):
+    def add_sequence_to_queue(self, prompt, stage=Stage.PREFILL):
         seq = Sequence(prompt, self.tokenizer, stage)
-        if stage == "prefill":
+        if stage == Stage.PREFILL:
             self.prefill_queue.enqueue(seq)
-        elif stage == "decode":
+        elif stage == Stage.DECODE:
             self.decode_queue.enqueue(seq)
 
     def run_scheduler(self):

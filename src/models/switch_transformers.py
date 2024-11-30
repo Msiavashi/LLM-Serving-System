@@ -1,9 +1,9 @@
 import torch
-from transformers import MixtralForCausalLM
 from src.batching.batch import Batch
 from src.cache.dynamic_cache import DynamicCacheEx as DynamicCache
+from transformers.models.switch_transformers import SwitchTransformersForConditionalGeneration
 
-class MyCustomMixtral(MixtralForCausalLM):
+class SwitchTransformer(SwitchTransformersForConditionalGeneration):
     def forward(self, batch: Batch, **kwargs):
         # Set running sequences
         self.running_sequences = batch.sequences
@@ -33,7 +33,7 @@ class MyCustomMixtral(MixtralForCausalLM):
     def _process_outputs(self, outputs, num_sequences):
         logits = outputs.logits
         kv_cache = outputs.past_key_values
-        print(f"Cache size: {kv_cache.get_cache_size()}")
+        
         # Split kv_cache and create a new batch
         split_kv_cache = kv_cache.split_kv_cache(num_sequences)
         new_batch = Batch(self.running_sequences)
