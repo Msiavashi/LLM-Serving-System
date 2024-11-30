@@ -15,7 +15,6 @@ from src.schedulers.scheduler import Scheduler
 import random
 
 def read_dataset(dataset_path, num_prompts):
-    
     with open(dataset_path, 'r') as f:
         dataset = json.load(f)
 
@@ -24,12 +23,18 @@ def read_dataset(dataset_path, num_prompts):
                 for data in dataset 
                 if (conv := data.get("conversations", [])) and len(conv) >= 2]
 
-    random.shuffle(dataset)
-    # filter duplicates
-    dataset = list(set(dataset))
-    filtered_dataset = [prompt for prompt, _ in dataset][:num_prompts]
-    print(f"Length of filtered dataset: {len(filtered_dataset)}")
-    return filtered_dataset   
+    # Remove duplicates while maintaining order
+    seen = set()
+    ordered_dataset = []
+    for item in dataset:
+        if item not in seen:
+            seen.add(item)
+            ordered_dataset.append(item)
+
+    # Select first `num_prompts` items
+    filtered_dataset = [prompt for prompt, _ in ordered_dataset][:num_prompts]
+
+    return filtered_dataset
 
 def initialize_model_and_tokenizer():
     config = AutoConfig.from_pretrained("mistralai/Mixtral-8x7B-Instruct-v0.1")
@@ -60,7 +65,7 @@ def initialize_model_and_tokenizer():
 def usage_example():
     model, tokenizer = initialize_model_and_tokenizer()
     
-    prompts = read_dataset("./datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 1000)
+    prompts = read_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 1000)
     
     # Calculate and print lengths
     prompt_lengths = [len(tokenizer.encode(prompt)) for prompt in prompts]
@@ -75,7 +80,6 @@ def usage_example():
     q3 = prompt_lengths[3 * len(prompt_lengths) // 4]
     print(f"Q1: {q1}, Q2: {q2}, Q3: {q3}")
     
-    random.shuffle(prompts)
     
     scheduler = Scheduler(model, tokenizer)
 

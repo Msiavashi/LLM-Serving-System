@@ -1,9 +1,3 @@
-"""
-This file contains the implementation of the DynamicCacheEx class, which is a subclass of the DynamicCache class in the transformers library. 
-The DynamicCacheEx is not used in the code and may be removed in version 1.2.0. 
-However, it is retained here as a utility for future use.
-"""
-
 import torch
 from typing import List
 from transformers.cache_utils import DynamicCache
@@ -11,6 +5,31 @@ from transformers.cache_utils import DynamicCache
 class DynamicCacheEx(DynamicCache):
     def __init__(self):
         super().__init__()
+    
+    def get_cache_size_at_layer(self, layer_idx: int, unit="mb"):
+        return self._convert_size(self._calculate_size([self.key_cache[layer_idx], self.value_cache[layer_idx]]), unit)
+        
+    def get_cache_size(self, unit="mb"):
+        caches = [kv for layer in zip(self.key_cache, self.value_cache) for kv in layer]
+        return self._convert_size(self._calculate_size(caches), unit)
+    
+    @staticmethod
+    def _calculate_size(tensors: List[torch.Tensor]) -> int:
+        return sum(tensor.numel() * tensor.element_size() for tensor in tensors)
+    
+    @staticmethod
+    def _convert_size(size: int, unit: str) -> float:
+        unit = unit.lower()
+        if unit == "bytes":
+            return size
+        elif unit == "kb":
+            return size / 1024
+        elif unit == "mb":
+            return size / (1024 ** 2)
+        elif unit == "gb":
+            return size / (1024 ** 3)
+        else:
+            raise ValueError(f"Unsupported unit: {unit}. Use 'bytes', 'KB', 'MB', or 'GB'.")
 
     def split_kv_cache(self, batch_size: int) -> List["DynamicCacheEx"]:
         split_caches = [DynamicCacheEx() for _ in range(batch_size)]
@@ -52,9 +71,10 @@ class DynamicCacheEx(DynamicCache):
 
         keys = torch.stack(padded_keys)
         values = torch.stack(padded_values)
-
+        
         merged_cache.update(keys.reshape(-1, *keys.shape[2:]), values.reshape(-1, *values.shape[2:]), layer_idx)
         
     @staticmethod
     def _pad_to_max_length(tensors: List[torch.Tensor], max_len: int) -> List[torch.Tensor]:
         return [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[2])) for tensor in tensors]
+

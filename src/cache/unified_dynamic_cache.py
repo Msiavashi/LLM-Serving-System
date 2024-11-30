@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple
-from transformers.cache_utils import DynamicCache
+from .dynamic_cache import DynamicCacheEx as DynamicCache
 import torch
 
 class UnifiedDynamicCache(DynamicCache):
@@ -34,7 +34,7 @@ class UnifiedDynamicCache(DynamicCache):
             
             merged_key_states = torch.stack(padded_key_list)
             merged_value_states = torch.stack(padded_value_list)
-
+            
             return merged_key_states, merged_value_states
 
     def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
@@ -44,3 +44,9 @@ class UnifiedDynamicCache(DynamicCache):
     def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = 0) -> int:
         usable_lengths = [cache.get_usable_length(new_seq_length, layer_idx) for cache in self.caches]
         return self.max_len + 100 if self.max_len > 0 else max(usable_lengths) + 100
+    
+    def get_cache_size(self, unit="mb"):
+        return sum(cache.get_cache_size(unit) for cache in self.caches)
+    
+    def get_cache_size_at_layer(self, layer_idx, unit="mb"):
+         return sum(cache.get_cache_size_at_layer(layer_idx, unit) for cache in self.caches)

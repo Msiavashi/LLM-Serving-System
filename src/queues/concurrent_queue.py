@@ -1,3 +1,8 @@
+"""
+    This module is not used in the code and may be removed in version 1.2.0. It's retained here as a utility for future use and Sample code.
+"""
+
+
 from src.queues.base_queue import BaseQueue
 
 class ConcurrentQueue(BaseQueue):

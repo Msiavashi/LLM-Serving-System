@@ -1,6 +1,6 @@
 import torch
 
-from transformers.cache_utils import DynamicCache
+from src.cache.dynamic_cache import DynamicCacheEx as DynamicCache
 from src.samplers.sampling_metadata import SamplingMetadata
 from .stage import Stage
 

@@ -3,18 +3,19 @@ import torch
 from transformers import MixtralForCausalLM
 from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock, MixtralDecoderLayer, MixtralConfig, MixtralModel, MoeModelOutputWithPast
 from torch.nn import functional as F
-from src.queues import FCFSQueue
+from src.mixins.model_input_mixin import ModelInputMixin
+from src.mixins.model_output_mixin import ModelOutputMixin
+from src.mixins.sparse_moe_block_with_queue import SparseMoeBlockWithQueuesMixin
 from src.batching.batch import Batch
 from typing import Optional, Tuple
 from transformers.cache_utils import Cache
 from src.cache.unified_dynamic_cache import UnifiedDynamicCache as DynamicCache
 
 
-class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
+class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock, SparseMoeBlockWithQueuesMixin):
     def __init__(self, config):
-        super().__init__(config)
-        # self.top_k = 1
-        self.queues = [FCFSQueue() for _ in range(self.num_experts)]
+        MixtralSparseMoeBlock.__init__(self, config)
+        SparseMoeBlockWithQueuesMixin.__init__(self, self.num_experts)
     
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -30,77 +31,21 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock):
         routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
         routing_weights = routing_weights.div_(routing_weights.sum(dim=-1, keepdim=True)).to(hidden_states.dtype)
 
-        # Pre-allocate final hidden states tensor
-        final_hidden_states = torch.zeros(
-            (batch_size * sequence_length, hidden_dim), 
-            dtype=hidden_states.dtype, 
-            device=hidden_states.device
-        )
 
         # Optimize expert routing
         expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
         selected_expert_indices = torch.nonzero(expert_mask.sum(dim=(1, 2))).squeeze(-1)
         
         if MyCustomMixtral.running_batch.is_decode():
-            for expert_idx in selected_expert_indices:
-                idx, top_x = torch.where(expert_mask[expert_idx])
-                current_state = hidden_states[top_x]
-                token_indices = top_x.tolist()
-                selected_sequences = [MyCustomMixtral.running_batch.sequences[idx] for idx in token_indices]
-                
-                # Batch sequence updates
-                for seq, state in zip(selected_sequences, current_state):
-                    seq.cached_hidden_state = state
-                    self.queues[expert_idx].enqueue(seq)
-            
-            MyCustomMixtral.running_batch.clear()
-            states_list = []
-            sequences_list = []
-
-            # Process queues that have enough sequences
-            for expert_idx in range(self.num_experts):
-                queue = self.queues[expert_idx]
-                if queue.size() >= 1:
-                    # Batch process sequences in queue
-                    expert_sequences = []
-                    states = []
-                    
-                    while queue.size() > 0:
-                        seq = queue.dequeue()
-                        states.append(seq.cached_hidden_state)
-                        expert_sequences.append(seq)
-                    
-                    if states:
-                        # Process batched states through expert
-                        batched_states = torch.stack(states)
-                        expert_output = self.experts[expert_idx](batched_states)
-                        
-                        # Store outputs in sequence caches
-                        for seq, output in zip(expert_sequences, expert_output):
-                            seq.expert_outputs_cache[expert_idx] = output
-                        sequences_list.extend(expert_sequences)
-
-            # Aggregate final states for completed sequences
-            final_states = []
-            for seq in sequences_list:
-                if len(seq.expert_outputs_cache) == self.top_k:
-                    output = sum(seq.expert_outputs_cache.values())
-                    final_states.append(output)
-                    seq.expert_outputs_cache.clear()
-                    MyCustomMixtral.running_batch.add_sequence(seq)
-            
-            final_hidden_states = torch.cat(final_states) if final_states else torch.zeros(
-                (0, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
-            )
+            final_hidden_states = self.process_decode(hidden_states, expert_mask, selected_expert_indices, MyCustomMixtral.running_batch, hidden_dim)
             batch_size = MyCustomMixtral.running_batch.size()
-            
         else:
-            # Process non-decode mode more efficiently
-            for expert_idx in selected_expert_indices:
-                idx, top_x = torch.where(expert_mask[expert_idx])
-                current_state = hidden_states[top_x]
-                current_hidden_states = self.experts[expert_idx](current_state)
-                final_hidden_states.index_add_(0, top_x, current_hidden_states)
+            final_hidden_states = torch.zeros(
+                (batch_size * sequence_length, hidden_dim), 
+                dtype=hidden_states.dtype, 
+                device=hidden_states.device
+            )
+            final_hidden_states = self.process_prefill(hidden_states, expert_mask, selected_expert_indices, final_hidden_states)
 
         return final_hidden_states.view(batch_size, sequence_length, hidden_dim), router_logits
 
@@ -146,7 +91,7 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
         hidden_states = self.post_attention_layernorm(hidden_states)
 
         if not MyCustomMixtral.running_batch.is_empty():
-            cached_residuals = residual.clone() # TODO: Can we remove the .clone()?
+            cached_residuals = residual
 
             if use_cache:
                 splited_kv_cache = present_key_value.split_kv_cache()
@@ -320,35 +265,27 @@ class MixtralModel(MixtralModel):
                 router_logits=all_router_logits,
             )
 
-class MyCustomMixtral(MixtralForCausalLM):
-    running_batch: Batch = None
+class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
     
     def __init__(self, config):
         super().__init__(config)
         self.model = MixtralModel(config)
+        self._initialize_layers(config)
+        
+    def forward(self, batch: Batch, **kwargs) -> Batch:
+            # Prepare inputs
+            input_ids, attention_mask, past_key_values = self._prepare_inputs(batch)
+
+            # Run the forward pass of the superclass and obtain outputs
+            outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
+
+            # Update the running batch with the outputs
+            self._update_batch(outputs, MyCustomMixtral.running_batch)
+
+            return MyCustomMixtral.running_batch
+    
+    def _initialize_layers(self, config):
         for i in range(config.num_hidden_layers):
             self.model.layers[i] = MyMixtralDecoderLayer(config, i)
             self.model.layers[i].block_sparse_moe = MyMixtralSparseMoeBlock(config)
         
-    def forward(self, batch: Batch, **kwargs):
-        MyCustomMixtral.running_batch = batch
-        input_ids_list, attention_mask_list, past_key_values_list = batch.model_inputs.get_all_inputs()
-        
-        input_ids = torch.cat(input_ids_list, dim=0)
-        attention_mask = torch.cat(attention_mask_list, dim=0)
-        
-        if past_key_values_list:
-            past_key_values = DynamicCache(past_key_values_list)
-        
-        outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
-        
-        logits = outputs.logits
-        kv_cache = outputs.past_key_values
-        
-        splited_kv_cache = kv_cache.split_kv_cache()
-        
-        # new_batch = Batch(MyCustomMixtral.running_sequences)
-        MyCustomMixtral.running_batch.update_sequences(logits, splited_kv_cache)
-        
-        return MyCustomMixtral.running_batch
-    
