@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from transformers import PhimoeForCausalLM, PhimoeConfig
 from transformers.models.phimoe.modeling_phimoe import PhimoeSparseMoeBlock, PhimoeDecoderLayer, sparsemixer, PhimoeModel, MoeModelOutputWithPast, PhimoeAttention, apply_rotary_pos_emb, repeat_kv
 from src.batching.batch import Batch
-from src.cache.dynamic_cache import UnifiedDynamicCache as DynamicCache
+from src.cache.unified_dynamic_cache import UnifiedDynamicCache as DynamicCache
 from transformers.cache_utils import Cache
 from src.queues.fcfs_queue import FCFSQueue
 from src.sequence import Sequence
