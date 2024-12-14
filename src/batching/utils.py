@@ -6,21 +6,24 @@ import torch.nn.functional as F
 
 class SequenceProcessor:
     @staticmethod
-    def pad_sequence(sequence, max_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        padding_length = max_length - sequence.input_ids.size(0)
+    def pad_sequence(sequence, max_length: int = 512) -> Tuple[torch.Tensor, torch.Tensor]:
+        max_length = 512
+        input_ids = sequence.input_ids[:max_length]
+        attention_mask = sequence.attention_mask[:max_length]
+        padding_length = max_length - input_ids.size(0)
         if padding_length > 0:
             padded_input_ids = F.pad(
-                sequence.input_ids, 
+                input_ids, 
                 (0, padding_length), 
                 value=sequence.tokenizer.pad_token_id
             )
             padded_attention_mask = F.pad(
-                sequence.attention_mask, 
+                attention_mask, 
                 (0, padding_length), 
                 value=0
             )
             return padded_input_ids, padded_attention_mask
-        return sequence.input_ids, sequence.attention_mask
+        return input_ids, attention_mask
 
     @staticmethod
     def process_prefill(sequence, max_length: int) -> Tuple[torch.Tensor, torch.Tensor, any]:

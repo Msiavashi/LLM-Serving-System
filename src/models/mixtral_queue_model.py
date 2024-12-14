@@ -241,7 +241,7 @@ class MixtralModel(MixtralModel):
 
             hidden_states = self.norm(hidden_states)
 
- 
+            MyCustomMixtral.add_memory_usage(hidden_states, "hidden_states")
             # add hidden states from the last decoder layer
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -266,6 +266,38 @@ class MixtralModel(MixtralModel):
             )
 
 class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
+    total_memory_mb = 0.0
+    
+    @staticmethod
+    def calculate_tensor_size_mb(tensor):
+        return tensor.nelement() * tensor.element_size() / (1024 * 1024)
+    
+    @classmethod
+    def add_memory_usage(cls, tensor, name=""):
+        if isinstance(tensor, torch.Tensor):
+            size_mb = cls.calculate_tensor_size_mb(tensor)
+            cls.total_memory_mb += size_mb
+            print(f"Intermediate state '{name}': {size_mb:.2f} MB")
+    
+    def get_number_of_tokens(self):
+        total_tokens = 0
+        
+        # Get tokens from current batch
+        if MyCustomMixtral.running_batch and MyCustomMixtral.running_batch.sequences:
+            for seq in MyCustomMixtral.running_batch.sequences:
+                # Count both input and generated tokens
+                total_tokens += seq.input_ids.numel()
+                total_tokens += seq.generated_tokens.numel()
+        
+        # Add tokens from expert queues in each layer
+        for layer in self.model.layers:
+            for queue in layer.block_sparse_moe.queues:
+                for seq in queue.queue:
+                    # Count both input and generated tokens for queued sequences
+                    total_tokens += seq.input_ids.numel()
+                    total_tokens += seq.generated_tokens.numel()
+                
+        return total_tokens
     
     def __init__(self, config):
         super().__init__(config)
@@ -273,19 +305,40 @@ class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
         self._initialize_layers(config)
         
     def forward(self, batch: Batch, **kwargs) -> Batch:
-            # Prepare inputs
-            input_ids, attention_mask, past_key_values = self._prepare_inputs(batch)
-
-            # Run the forward pass of the superclass and obtain outputs
-            outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
-
-            # Update the running batch with the outputs
-            self._update_batch(outputs, MyCustomMixtral.running_batch)
-
-            return MyCustomMixtral.running_batch
+        MyCustomMixtral.total_memory_mb = 0.0
+        
+        input_ids, attention_mask, past_key_values = self._prepare_inputs(batch)
+        
+        # Only count the actual tokens being processed in this forward pass
+        print(f"Input tokens in current batch: {input_ids.numel()}")
+        print(f"Total tokens in system (including queues): {self.get_number_of_tokens()}")
+        
+        outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
+        
+        self.add_memory_usage(outputs.logits, "logits")
+        
+        self._update_batch(outputs, MyCustomMixtral.running_batch)
+        
+        
+        total_kv_cache_size = outputs.past_key_values.get_cache_size()
+        
+        seen_items = set()
+        for layer in self.model.layers:
+            for queue in layer.block_sparse_moe.queues:
+                for item in queue.queue:
+                    if item not in seen_items:
+                        total_kv_cache_size += item.kv_cache.get_cache_size()
+                        seen_items.add(item)
+                        
+        total_seqs_in_system = len(seen_items) + len(MyCustomMixtral.running_batch.sequences)
+        
+        print(f"Total sequences in system: {total_seqs_in_system}")
+                    
+        print(f"KV Cache size: {total_kv_cache_size:.2f} MB")
+        print(f"Total intermediate states memory: {self.total_memory_mb:.2f} MB")
+        return MyCustomMixtral.running_batch
     
     def _initialize_layers(self, config):
         for i in range(config.num_hidden_layers):
             self.model.layers[i] = MyMixtralDecoderLayer(config, i)
             self.model.layers[i].block_sparse_moe = MyMixtralSparseMoeBlock(config)
-        

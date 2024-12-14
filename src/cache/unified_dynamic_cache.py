@@ -42,8 +42,9 @@ class UnifiedDynamicCache(DynamicCache):
         return min(seq_lengths) if seq_lengths else 0
 
     def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = 0) -> int:
+        # Get the minimum usable length across all caches for safety
         usable_lengths = [cache.get_usable_length(new_seq_length, layer_idx) for cache in self.caches]
-        return self.max_len + 100 if self.max_len > 0 else max(usable_lengths) + 100
+        return min(usable_lengths) if usable_lengths else new_seq_length
     
     def get_cache_size(self, unit="mb"):
         return sum(cache.get_cache_size(unit) for cache in self.caches)

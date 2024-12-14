@@ -30,6 +30,11 @@ class SequenceBase:
         )
         self.kv_cache = new_kv_cache
 
+    def get_full_length(self):
+        input_length = self.input_ids.shape[-1] if len(self.input_ids.shape) > 0 else 0
+        generated_length = self.generated_tokens.shape[-1] if len(self.generated_tokens.shape) > 0 else 0
+        return input_length + generated_length
+
     def get_generated_text(self, tokenizer):
         return tokenizer.decode(self.generated_tokens, skip_special_tokens=True)
 

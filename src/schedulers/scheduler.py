@@ -6,7 +6,7 @@ from src.queues import FCFSQueue as SequenceQueue
 from src.batching.policies import SizeBasedBatchPolicy
 
 class Scheduler:
-    def __init__(self, model, tokenizer, batch_size=32):
+    def __init__(self, model, tokenizer, batch_size=64):
         self.model = model
         self.tokenizer = tokenizer
         self.prefill_queue = SequenceQueue()
@@ -38,11 +38,12 @@ class Scheduler:
              
             if batch.size() == 0:
                 break
-            
             start_time = time.time()
             with torch.no_grad():
                 output_batch = self.model(batch=batch, use_cache=True)
                 tokens_generated = len(output_batch.sequences)
+                
+                print(f"generated tokens: {tokens_generated}")
                 
                 # Update throughput stats
                 elapsed = time.time() - start_time
@@ -63,11 +64,12 @@ class Scheduler:
                 for seq in output_batch.sequences:
                     seq.sampling_metadata.current_token_count += 1
                     if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
-                        finished_sequences.append(seq)
-                        del seq.kv_cache
+                        # finished_sequences.append(seq)
+                        # del seq.kv_cache
+                        del seq
                     else:
                         self.decode_queue.enqueue(seq)
-        
+            print("--------------------------------------")
         # Print final statistics
         if self.prefill_stats["time"] > 0:
             print(f"\nPrefill phase average throughput: "

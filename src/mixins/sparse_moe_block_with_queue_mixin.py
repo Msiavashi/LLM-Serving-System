@@ -17,15 +17,15 @@ class SparseMoeBlockWithQueuesMixin:
             final_hidden_states.index_add_(0, top_x, current_hidden_states)
         return final_hidden_states
 
-    def _process_expert_queue(self, expert_idx):
+    def _process_expert_queue(self, expert_idx, threshold=1):
         queue = self.queues[expert_idx]
-        if queue.size() < 1:
+        if queue.size() < threshold:
             return []
 
         expert_sequences = []
         states = []
 
-        while queue.size() > 0:
+        for _ in range(queue.size()):
             seq = queue.dequeue()
             states.append(seq.cached_hidden_state)
             expert_sequences.append(seq)

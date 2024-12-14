@@ -72,6 +72,7 @@ class Batch:
 
         self._model_inputs = ModelInputs(input_ids_list, attention_mask_list, past_key_values_list)
 
+
     @property
     def model_inputs(self) -> ModelInputs:
         self._preprocess_sequences()
