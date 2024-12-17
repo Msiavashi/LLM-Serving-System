@@ -1,0 +1,20 @@
+
+from typing import Dict, Type
+from .base_scheduler import BaseScheduler
+from .fcfs_scheduler import FCFSScheduler
+
+class SchedulerFactory:
+    _schedulers: Dict[str, Type[BaseScheduler]] = {
+        "fcfs": FCFSScheduler,
+    }
+
+    @classmethod
+    def register_scheduler(cls, name: str, scheduler_class: Type[BaseScheduler]) -> None:
+        cls._schedulers[name] = scheduler_class
+
+    @classmethod
+    def create_scheduler(cls, name: str, model, tokenizer, **kwargs) -> BaseScheduler:
+        if name not in cls._schedulers:
+            raise ValueError(f"Unknown scheduler type: {name}")
+        
+        return cls._schedulers[name](model, tokenizer, **kwargs)
