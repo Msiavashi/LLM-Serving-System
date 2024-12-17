@@ -228,9 +228,9 @@ def usage_example():
     
     results = scheduler.run_scheduler()
 
-    # for seq in results:
-    #     generated_text = seq.get_generated_text(tokenizer)
-    #     print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
+    for seq in results:
+        generated_text = seq.get_generated_text(tokenizer)
+        print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
 
 
 if __name__ == "__main__":

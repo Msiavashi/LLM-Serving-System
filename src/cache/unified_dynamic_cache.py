@@ -12,6 +12,13 @@ class UnifiedDynamicCache(DynamicCache):
     def split_kv_cache(self):
         return self.caches
     
+    def _pad_with_last_token(self, tensor: torch.Tensor, target_length: int) -> torch.Tensor:
+        if tensor.shape[1] >= target_length:
+            return tensor
+        last_token = tensor[:, -1:]
+        padding_length = target_length - tensor.shape[1]
+        return torch.cat([tensor] + [last_token] * padding_length, dim=1)
+
     def update(
             self,
             key_states: torch.Tensor,
@@ -28,9 +35,10 @@ class UnifiedDynamicCache(DynamicCache):
                 key_list.append(keys)
                 value_list.append(values)
                 max_len = max(max_len, keys.shape[1])
+            
             self.max_len = max_len
-            padded_key_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in key_list]
-            padded_value_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in value_list]
+            padded_key_list = [self._pad_with_last_token(tensor, max_len) for tensor in key_list]
+            padded_value_list = [self._pad_with_last_token(tensor, max_len) for tensor in value_list]
             
             merged_key_states = torch.stack(padded_key_list)
             merged_value_states = torch.stack(padded_value_list)
@@ -42,8 +50,9 @@ class UnifiedDynamicCache(DynamicCache):
         return min(seq_lengths) if seq_lengths else 0
 
     def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = 0) -> int:
+        # Get the minimum usable length across all caches for safety
         usable_lengths = [cache.get_usable_length(new_seq_length, layer_idx) for cache in self.caches]
-        return self.max_len + 100 if self.max_len > 0 else max(usable_lengths) + 100
+        return min(usable_lengths) if usable_lengths else new_seq_length
     
     def get_cache_size(self, unit="mb"):
         return sum(cache.get_cache_size(unit) for cache in self.caches)
