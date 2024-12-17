@@ -9,6 +9,7 @@ import torch
 # from src.models.mixtral_model import MyCustomMixtral
 from src.models.mixtral_queue_model import MyCustomMixtral
 from src.schedulers.scheduler import Scheduler
+from src.schedulers.factory import SchedulerFactory
 import random
 
 
@@ -40,6 +41,15 @@ def initialize_model_and_tokenizer():
 
 def usage_example():
     model, tokenizer = initialize_model_and_tokenizer()
+    
+    # Create scheduler using factory
+    scheduler = SchedulerFactory.create_scheduler(
+        name="fcfs",
+        model=model,
+        tokenizer=tokenizer,
+        batch_size=32
+    )
+    
     prompts = [
         "Tell me a story about a brave knight.",
         "What are the benefits of a healthy diet?",
@@ -221,8 +231,6 @@ def usage_example():
     
     # random.shuffle(prompts)
     
-    scheduler = Scheduler(model, tokenizer)
-
     for prompt in prompts:
         scheduler.add_sequence_to_queue(prompt)
     
