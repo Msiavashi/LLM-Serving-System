@@ -1,11 +1,12 @@
-
 from typing import Dict, Type
 from .base_scheduler import BaseScheduler
 from .fcfs_scheduler import FCFSScheduler
+from .round_robin_scheduler import RoundRobinScheduler
 
 class SchedulerFactory:
     _schedulers: Dict[str, Type[BaseScheduler]] = {
         "fcfs": FCFSScheduler,
+        "round_robin": RoundRobinScheduler,
     }
 
     @classmethod
