@@ -1,6 +1,7 @@
 from typing import List
 import torch
 import time
+import threading
 
 from src.sequence import Sequence, Stage
 from src.queues import FCFSQueue as SequenceQueue
@@ -35,52 +36,54 @@ class RoundRobinScheduler(BaseScheduler):
             
         self.current_model = (self.current_model + 1) % len(self.model_instances)
 
+    def process_model_instance(self, model_idx, model_instance, finished_sequences):
+        iteration = 0
+        while not (model_instance.decode_queue.is_empty() and model_instance.prefill_queue.is_empty()):
+            iteration += 1
+            
+            is_decode = not model_instance.decode_queue.is_empty()
+            queue = model_instance.decode_queue if is_decode else model_instance.prefill_queue
+            batch = self.batch_policy.get_next_batch(queue)
+            
+            if batch.size() == 0:
+                continue
+                
+            start_time = time.time()
+            with torch.no_grad():
+                output_batch = model_instance.model(batch=batch, use_cache=True)
+                tokens_generated = len(output_batch.sequences)
+                
+                elapsed = time.time() - start_time
+                stats = model_instance.decode_stats if is_decode else model_instance.prefill_stats
+                stats["tokens"] += tokens_generated
+                stats["time"] += elapsed
+                
+                phase = "decode" if is_decode else "prefill"
+                print(f"Model {model_idx} - Iteration {iteration} ({phase}): "
+                        f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
+                        f"Batch size = {tokens_generated} "
+                        f"Elapsed time = {elapsed:.2f} sec")
+                
+                for seq in output_batch.sequences:
+                    seq.sampling_metadata.current_token_count += 1
+                    if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
+                        finished_sequences.append(seq)
+                        del seq.kv_cache
+                    else:
+                        model_instance.decode_queue.enqueue(seq)
+
     def run_scheduler(self):
         finished_sequences = []
-        iteration = 0
-        
-        while True:
-            all_queues_empty = True
-            
-            for model_idx, model_instance in enumerate(self.model_instances):
-                if not (model_instance.decode_queue.is_empty() and model_instance.prefill_queue.is_empty()):
-                    all_queues_empty = False
-                    iteration += 1
-                    
-                    is_decode = not model_instance.decode_queue.is_empty()
-                    queue = model_instance.decode_queue if is_decode else model_instance.prefill_queue
-                    batch = self.batch_policy.get_next_batch(queue)
-                    
-                    if batch.size() == 0:
-                        continue
-                        
-                    start_time = time.time()
-                    with torch.no_grad():
-                        output_batch = model_instance.model(batch=batch, use_cache=True)
-                        tokens_generated = len(output_batch.sequences)
-                        
-                        elapsed = time.time() - start_time
-                        stats = model_instance.decode_stats if is_decode else model_instance.prefill_stats
-                        stats["tokens"] += tokens_generated
-                        stats["time"] += elapsed
-                        
-                        phase = "decode" if is_decode else "prefill"
-                        print(f"Model {model_idx} - Iteration {iteration} ({phase}): "
-                              f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
-                              f"Batch size = {tokens_generated} "
-                              f"Elapsed time = {elapsed:.2f} sec")
-                        
-                        for seq in output_batch.sequences:
-                            seq.sampling_metadata.current_token_count += 1
-                            if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
-                                finished_sequences.append(seq)
-                                del seq.kv_cache
-                            else:
-                                model_instance.decode_queue.enqueue(seq)
+        threads = []
+             
+        for model_idx, model_instance in enumerate(self.model_instances):
+            thread = threading.Thread(target=self.process_model_instance, args=(model_idx, model_instance, finished_sequences))
+            threads.append(thread)
+            thread.start()
 
-            if all_queues_empty:
-                break
-                
+        for thread in threads:
+            thread.join()
+
         # Print statistics for each model
         for model_idx, model_instance in enumerate(self.model_instances):
             print(f"\nModel {model_idx} Statistics:")
