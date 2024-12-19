@@ -17,7 +17,7 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock, SparseMoeBlockWithQueuesMix
         MixtralSparseMoeBlock.__init__(self, config)
         SparseMoeBlockWithQueuesMixin.__init__(self, self.num_experts)
     
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor, running_batch) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         
         # Combine reshape and conditional jitter into one operation
@@ -36,9 +36,9 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock, SparseMoeBlockWithQueuesMix
         expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
         selected_expert_indices = torch.nonzero(expert_mask.sum(dim=(1, 2))).squeeze(-1)
         
-        if MyCustomMixtral.running_batch.is_decode():
-            final_hidden_states = self.process_decode(hidden_states, expert_mask, selected_expert_indices, MyCustomMixtral.running_batch, hidden_dim)
-            batch_size = MyCustomMixtral.running_batch.size()
+        if running_batch.is_decode():
+            final_hidden_states = self.process_decode(hidden_states, expert_mask, selected_expert_indices, running_batch, hidden_dim)
+            batch_size = running_batch.size()
         else:
             final_hidden_states = torch.zeros(
                 (batch_size * sequence_length, hidden_dim), 
@@ -64,6 +64,7 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
         output_router_logits: Optional[bool] = False,
         use_cache: Optional[bool] = False,
         cache_position: Optional[torch.LongTensor] = None,
+        running_batch: Batch = None,
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         # print(f"Layer index: {self.layer_idx}")
@@ -71,7 +72,7 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        if not MyCustomMixtral.running_batch.is_empty():
+        if not running_batch.is_empty():
             hidden_states, self_attn_weights, present_key_value = self.self_attn(
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
@@ -90,22 +91,22 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
 
         hidden_states = self.post_attention_layernorm(hidden_states)
 
-        if not MyCustomMixtral.running_batch.is_empty():
+        if not running_batch.is_empty():
             cached_residuals = residual
 
             if use_cache:
                 splited_kv_cache = present_key_value.split_kv_cache()
             else:
-                splited_kv_cache = [None] * MyCustomMixtral.running_batch.size()
+                splited_kv_cache = [None] * running_batch.size()
 
-            for seq, cached_residual, kv_cache in zip(MyCustomMixtral.running_batch.sequences, cached_residuals, splited_kv_cache):
+            for seq, cached_residual, kv_cache in zip(running_batch.sequences, cached_residuals, splited_kv_cache):
                 seq.cached_residual = cached_residual
                 seq.kv_cache = kv_cache
 
-        hidden_states, router_logits = self.block_sparse_moe(hidden_states)
+        hidden_states, router_logits = self.block_sparse_moe(hidden_states, running_batch)
 
-        if not MyCustomMixtral.running_batch.is_empty():
-            residual = torch.stack([seq.cached_residual for seq in MyCustomMixtral.running_batch.sequences], dim=0)
+        if not running_batch.is_empty():
+            residual = torch.stack([seq.cached_residual for seq in running_batch.sequences], dim=0)
             hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
@@ -124,6 +125,10 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
 class MixtralModel(MixtralModel):
     def __init__(self, config):
         super().__init__(config)
+        self.running_batch: Batch = None
+        
+    def set_running_batch(self, batch):
+        self.running_batch = batch
     
     def forward(
             self,
@@ -213,8 +218,8 @@ class MixtralModel(MixtralModel):
                         cache_position,
                     )
                 else:
-                    if MyCustomMixtral.running_batch.is_decode():
-                        past_key_values = DynamicCache([seq.kv_cache for seq in MyCustomMixtral.running_batch.sequences])
+                    if self.running_batch.is_decode():
+                        past_key_values = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences])
                          
                     layer_outputs = decoder_layer(
                         hidden_states,
@@ -225,6 +230,7 @@ class MixtralModel(MixtralModel):
                         output_router_logits=output_router_logits,
                         use_cache=use_cache,
                         cache_position=cache_position,
+                        running_batch=self.running_batch,
                     )
                     
                 hidden_states = layer_outputs[0]
@@ -246,7 +252,7 @@ class MixtralModel(MixtralModel):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
                 
-            next_cache = DynamicCache([seq.kv_cache for seq in MyCustomMixtral.running_batch.sequences]) if use_cache else None
+            next_cache = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences]) if use_cache else None
             
             if return_legacy_cache:
                 next_cache = next_cache.to_legacy_cache()
@@ -274,18 +280,17 @@ class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
         
     def forward(self, batch: Batch, **kwargs) -> Batch:
             # Prepare inputs
-            input_ids, attention_mask, past_key_values = self._prepare_inputs(batch)
+            input_ids, attention_mask, past_key_values, running_batch = self._prepare_inputs(batch)
 
-            # Run the forward pass of the superclass and obtain outputs
+            self.model.set_running_batch(running_batch)
             outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
 
             # Update the running batch with the outputs
-            self._update_batch(outputs, MyCustomMixtral.running_batch)
+            self._update_batch(outputs, running_batch)
 
-            return MyCustomMixtral.running_batch
+            return self.running_batch
     
     def _initialize_layers(self, config):
         for i in range(config.num_hidden_layers):
             self.model.layers[i] = MyMixtralDecoderLayer(config, i)
             self.model.layers[i].block_sparse_moe = MyMixtralSparseMoeBlock(config)
-        
