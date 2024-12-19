@@ -2,6 +2,7 @@ from typing import List
 import torch
 import time
 import threading
+from mpi4py import MPI
 
 from src.sequence import Sequence, Stage
 from src.queues import FCFSQueue as SequenceQueue
@@ -16,27 +17,26 @@ class ModelInstance:
         self.decode_queue = SequenceQueue()
         self.prefill_stats = {"tokens": 0, "time": 0}
         self.decode_stats = {"tokens": 0, "time": 0}
+        self.finished_sequences = []
 
 class RoundRobinScheduler(BaseScheduler):
     def __init__(self, models: List[ModelInstance], tokenizer, batch_size=32):
         self.model_instances = models
         self.tokenizer = tokenizer
-        self.current_model = 0
         self.batch_policy = SizeBasedBatchPolicy(batch_size)
+        self.rank = MPI.COMM_WORLD.Get_rank()
 
     def add_sequence_to_queue(self, prompt, stage=Stage.PREFILL):
-        # Round-robin assignment to models
-        model_instance = self.model_instances[self.current_model]
+        # Single model per rank, so always use first model instance
+        model_instance = self.model_instances[0]
         seq = Sequence(prompt, self.tokenizer, stage, device=model_instance.device)
         
         if stage == Stage.PREFILL:
             model_instance.prefill_queue.enqueue(seq)
         else:
             model_instance.decode_queue.enqueue(seq)
-            
-        self.current_model = (self.current_model + 1) % len(self.model_instances)
 
-    def process_model_instance(self, model_idx, model_instance, finished_sequences):
+    def process_model_instance(self, model_idx, model_instance):
         iteration = 0
         while not (model_instance.decode_queue.is_empty() and model_instance.prefill_queue.is_empty()):
             iteration += 1
@@ -59,7 +59,7 @@ class RoundRobinScheduler(BaseScheduler):
                 stats["time"] += elapsed
                 
                 phase = "decode" if is_decode else "prefill"
-                print(f"Model {model_idx} - Iteration {iteration} ({phase}): "
+                print(f"Rank/Model {self.rank} - Iteration {iteration} ({phase}): "
                         f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
                         f"Batch size = {tokens_generated} "
                         f"Elapsed time = {elapsed:.2f} sec")
@@ -67,31 +67,25 @@ class RoundRobinScheduler(BaseScheduler):
                 for seq in output_batch.sequences:
                     seq.sampling_metadata.current_token_count += 1
                     if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
-                        finished_sequences.append(seq)
+                        model_instance.finished_sequences.append(seq)
                         del seq.kv_cache
                     else:
                         model_instance.decode_queue.enqueue(seq)
 
     def run_scheduler(self):
-        finished_sequences = []
-        threads = []
-             
-        for model_idx, model_instance in enumerate(self.model_instances):
-            thread = threading.Thread(target=self.process_model_instance, args=(model_idx, model_instance, finished_sequences))
-            threads.append(thread)
-            thread.start()
+        # Process single model instance
+        self.process_model_instance(0, self.model_instances[0])
+        
+        finished_sequences = self.model_instances[0].finished_sequences
 
-        for thread in threads:
-            thread.join()
-
-        # Print statistics for each model
-        for model_idx, model_instance in enumerate(self.model_instances):
-            print(f"\nModel {model_idx} Statistics:")
-            if model_instance.prefill_stats["time"] > 0:
-                print(f"Prefill phase average throughput: "
-                      f"{model_instance.prefill_stats['tokens']/model_instance.prefill_stats['time']:.2f} tokens/sec")
-            if model_instance.decode_stats["time"] > 0:
-                print(f"Decode phase average throughput: "
-                      f"{model_instance.decode_stats['tokens']/model_instance.decode_stats['time']:.2f} tokens/sec")
+        # Print statistics with rank
+        model_instance = self.model_instances[0]
+        print(f"\nRank/Model {self.rank} Statistics:")
+        if model_instance.prefill_stats["time"] > 0:
+            print(f"Prefill phase average throughput: "
+                  f"{model_instance.prefill_stats['tokens']/model_instance.prefill_stats['time']:.2f} tokens/sec")
+        if model_instance.decode_stats["time"] > 0:
+            print(f"Decode phase average throughput: "
+                  f"{model_instance.decode_stats['tokens']/model_instance.decode_stats['time']:.2f} tokens/sec")
         
         return finished_sequences
