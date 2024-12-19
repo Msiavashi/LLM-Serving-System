@@ -7,11 +7,13 @@ from src.batching.batch import Batch
 from src.cache.unified_dynamic_cache import UnifiedDynamicCache as DynamicCache
 
 class ModelInputMixin:
-    running_batch: Batch = None
+    
+    def __init__(self):
+        self.running_batch: Batch = None
     
     def _prepare_inputs(self, batch: Batch):
         
-        ModelInputMixin.running_batch = batch
+        self.running_batch = batch
         
         input_ids_list, attention_mask_list, past_key_values_list = batch.model_inputs.get_all_inputs()
         
@@ -20,5 +22,5 @@ class ModelInputMixin:
         
         past_key_values = DynamicCache(past_key_values_list) if past_key_values_list else None
         
-        return input_ids, attention_mask, past_key_values
- 
+        return input_ids, attention_mask, past_key_values, self.running_batch
+
