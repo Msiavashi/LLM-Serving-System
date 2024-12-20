@@ -1,8 +1,6 @@
 from typing import List
 import torch
 import time
-import threading
-from mpi4py import MPI
 
 from src.sequence import Sequence, Stage
 from src.queues import FCFSQueue as SequenceQueue
@@ -20,11 +18,11 @@ class ModelInstance:
         self.finished_sequences = []
 
 class RoundRobinScheduler(BaseScheduler):
-    def __init__(self, models: List[ModelInstance], tokenizer, batch_size=32):
+    def __init__(self, models: List[ModelInstance], tokenizer, batch_size=32, rank=0):
         self.model_instances = models
         self.tokenizer = tokenizer
         self.batch_policy = SizeBasedBatchPolicy(batch_size)
-        self.rank = MPI.COMM_WORLD.Get_rank()
+        self.rank = rank
 
     def add_sequence_to_queue(self, prompt, stage=Stage.PREFILL):
         # Single model per rank, so always use first model instance
@@ -59,7 +57,7 @@ class RoundRobinScheduler(BaseScheduler):
                 stats["time"] += elapsed
                 
                 phase = "decode" if is_decode else "prefill"
-                print(f"Rank/Model {self.rank} - Iteration {iteration} ({phase}): "
+                print(f"Model {self.rank} - Iteration {iteration} ({phase}): "
                         f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
                         f"Batch size = {tokens_generated} "
                         f"Elapsed time = {elapsed:.2f} sec")
@@ -78,9 +76,9 @@ class RoundRobinScheduler(BaseScheduler):
         
         finished_sequences = self.model_instances[0].finished_sequences
 
-        # Print statistics with rank
+        # Print statistics
         model_instance = self.model_instances[0]
-        print(f"\nRank/Model {self.rank} Statistics:")
+        print(f"\nModel {self.rank} Statistics:")
         if model_instance.prefill_stats["time"] > 0:
             print(f"Prefill phase average throughput: "
                   f"{model_instance.prefill_stats['tokens']/model_instance.prefill_stats['time']:.2f} tokens/sec")
