@@ -4,13 +4,6 @@ import os
 # Add the root directory to PYTHONPATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from transformers import AutoConfig, AutoTokenizer
-from transformers import BitsAndBytesConfig
-import torch
-# from src.models.mixtral_model import MyCustomMixtral
-from src.models.mixtral_queue_model import MyCustomMixtral
-from src.schedulers.scheduler import Scheduler
-import random
 from utils import read_shared_gpt_dataset
 from src.models.model_factory import ModelFactory
 from src.engines.factory import EngineFactory

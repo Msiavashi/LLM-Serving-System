@@ -40,14 +40,43 @@ class FCFSScheduler(BaseScheduler):
             if batch.size() == 0:
                 break
             
-            sequences = self.engine.run_batch(batch)
+            start_time = time.time()
             
-            for seq in sequences:
+            output_batch = self.engine.run_batch(batch)
+            
+            tokens_generated = len(output_batch.sequences)
+            
+            elapsed = time.time() - start_time
+            
+            # Update throughput stats
+            if is_decode:
+                self.decode_stats["tokens"] += tokens_generated
+                self.decode_stats["time"] += elapsed
+            else:
+                self.prefill_stats["tokens"] += tokens_generated
+                self.prefill_stats["time"] += elapsed
+            
+            # Print throughput for this iteration
+            phase = "decode" if is_decode else "prefill"
+            print(f"Iteration {iteration} ({phase}): "
+                  f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
+                  f"Batch size = {tokens_generated} "
+                  f"Elapsed time = {elapsed:.2f} sec")
+            
+            for seq in output_batch.sequences:
                 seq.sampling_metadata.current_token_count += 1
                 if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
                     finished_sequences.append(seq)
                     del seq.kv_cache
                 else:
                     self.decode_queue.enqueue(seq)
-            
+        
+        # Print final statistics
+        if self.prefill_stats["time"] > 0:
+            print(f"\nPrefill phase average throughput: "
+                  f"{self.prefill_stats['tokens']/self.prefill_stats['time']:.2f} tokens/sec")
+        if self.decode_stats["time"] > 0:
+            print(f"Decode phase average throughput: "
+                  f"{self.decode_stats['tokens']/self.decode_stats['time']:.2f} tokens/sec")
+        
         return finished_sequences

@@ -51,16 +51,18 @@ class RoundRobinScheduler(BaseScheduler):
                 output_batch = model_instance.model(batch=batch, use_cache=True)
                 tokens_generated = len(output_batch.sequences)
                 
+                # Update throughput stats
                 elapsed = time.time() - start_time
                 stats = model_instance.decode_stats if is_decode else model_instance.prefill_stats
                 stats["tokens"] += tokens_generated
                 stats["time"] += elapsed
                 
+                # Print throughput for this iteration
                 phase = "decode" if is_decode else "prefill"
                 print(f"Model {self.rank} - Iteration {iteration} ({phase}): "
-                        f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
-                        f"Batch size = {tokens_generated} "
-                        f"Elapsed time = {elapsed:.2f} sec")
+                      f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
+                      f"Batch size = {tokens_generated} "
+                      f"Elapsed time = {elapsed:.2f} sec")
                 
                 for seq in output_batch.sequences:
                     seq.sampling_metadata.current_token_count += 1
@@ -76,7 +78,7 @@ class RoundRobinScheduler(BaseScheduler):
         
         finished_sequences = self.model_instances[0].finished_sequences
 
-        # Print statistics
+        # Print final statistics
         model_instance = self.model_instances[0]
         print(f"\nModel {self.rank} Statistics:")
         if model_instance.prefill_stats["time"] > 0:
