@@ -5,7 +5,7 @@ from typing import List
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.engines.mpi_engine import MPIEngine
+from src.engines.factory import EngineFactory
 from src.models.model_factory import ModelFactory
 from src.schedulers.round_robin_scheduler import RoundRobinScheduler
 
@@ -159,8 +159,8 @@ def process_prompts(models, tokenizer, prompts, rank):
     return scheduler.run_scheduler()
 
 def usage_example():
-    # Initialize the MPI engine
-    engine = MPIEngine()
+    # Initialize the MPI engine using factory
+    engine = EngineFactory.create_engine("mpi")
     
     # Initialize model and tokenizer for this rank
     models, tokenizer = ModelFactory.create_mixtral_model(engine.rank)

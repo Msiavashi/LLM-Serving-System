@@ -1,10 +1,12 @@
-from mpi4py import MPI
 from typing import List, Any, Tuple, Callable
 from datetime import datetime
 import time
 
 class MPIEngine:
     def __init__(self):
+        # Lazy import MPI only when MPIEngine is actually used
+        from mpi4py import MPI
+        self.MPI = MPI
         self.comm = MPI.COMM_WORLD
         self.rank = self.comm.Get_rank()
         self.size = self.comm.Get_size()

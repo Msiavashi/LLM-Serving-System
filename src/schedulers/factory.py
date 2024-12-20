@@ -14,8 +14,8 @@ class SchedulerFactory:
         cls._schedulers[name] = scheduler_class
 
     @classmethod
-    def create_scheduler(cls, name: str, model, tokenizer, **kwargs) -> BaseScheduler:
+    def create_scheduler(cls, name: str, engine, tokenizer, **kwargs) -> BaseScheduler:
         if name not in cls._schedulers:
             raise ValueError(f"Unknown scheduler type: {name}")
         
-        return cls._schedulers[name](model, tokenizer, **kwargs)
+        return cls._schedulers[name](engine=engine, tokenizer=tokenizer, **kwargs)
