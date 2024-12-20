@@ -3,49 +3,24 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from transformers import AutoConfig, AutoTokenizer
-from transformers import BitsAndBytesConfig
-import torch
-# from src.models.mixtral_model import MyCustomMixtral
-from src.models.mixtral_queue_model import MyCustomMixtral
-from src.schedulers.scheduler import Scheduler
 from src.schedulers.factory import SchedulerFactory
 import random
-
-
-def initialize_model_and_tokenizer():
-    config = AutoConfig.from_pretrained("mistralai/Mixtral-8x7B-Instruct-v0.1")
-    tokenizer = AutoTokenizer.from_pretrained("mistralai/Mixtral-8x7B-Instruct-v0.1")
-    
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type='nf4',
-        bnb_4bit_compute_dtype=torch.float16,
-    )
-    
-    model = MyCustomMixtral.from_pretrained(
-        "mistralai/Mixtral-8x7B-Instruct-v0.1",
-        config=config,
-        device_map='auto',
-        quantization_config=quantization_config,
-        low_cpu_mem_usage=True,
-        torch_dtype=torch.float16,
-    )
-    
-    return model, tokenizer
+from src.models.model_factory import ModelFactory
+from src.engines.factory import EngineFactory
 
 
 def usage_example():
-    model, tokenizer = initialize_model_and_tokenizer()
+    # Create model using factory
+    model_instances, tokenizer = ModelFactory.create_mixtral_model(rank=1)
+    model = model_instances[0].model
     
-    # Create scheduler using factory
+    # Create engine using factory - now using standard model engine 
+    engine = EngineFactory.create_engine("model", model=model)
+    
+    # Create scheduler using factory with engine instead of model
     scheduler = SchedulerFactory.create_scheduler(
         name="fcfs",
-        model=model,
+        engine=engine,
         tokenizer=tokenizer,
         batch_size=32
     )
