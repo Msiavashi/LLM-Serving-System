@@ -1,5 +1,6 @@
 import json
-from transformers import AutoTokenizer
+import random
+from tqdm.auto import tqdm
 
 
 def read_shared_gpt_dataset(dataset_path, num_prompts):
@@ -24,3 +25,18 @@ def read_shared_gpt_dataset(dataset_path, num_prompts):
 
     return filtered_dataset
 
+def generate_prompts(num_prompts, prompt_size, tokenizer):
+    """ 
+        FIXME: The sequence lengths are not 100% accurate, however, they are close enough for the purpose of examples.
+    """
+    prompts = []
+    vocab = list(tokenizer.get_vocab().keys())
+    
+    with tqdm(total=num_prompts, desc="Generating Prompts") as pbar:
+        for _ in range(num_prompts):
+            prompt_tokens = random.choices(vocab, k=prompt_size)
+            prompt_tokens = [int(tokenizer.convert_tokens_to_ids(token)) for token in prompt_tokens]
+            prompt = tokenizer.decode(prompt_tokens)
+            prompts.append(prompt)
+            pbar.update(1)
+    return prompts

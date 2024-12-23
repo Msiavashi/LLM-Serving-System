@@ -1,14 +1,15 @@
-from typing import Tuple, List
+from typing import Tuple, List, Type
 import torch
-from transformers import AutoConfig, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoConfig, AutoTokenizer, BitsAndBytesConfig, PreTrainedModel
 
 from src.schedulers.round_robin_scheduler import ModelInstance
-from src.models.mixtral_queue_model import MyCustomMixtral
+from src.models.mixtral_model import MyCustomMixtral as MixtralModel
+from src.models.mixtral_queue_model import MyCustomMixtral as MixtralQueueModel
 
 class ModelFactory:
     @staticmethod
-    def create_mixtral_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
-        """Initialize Mixtral model and tokenizer for given rank"""
+    def _init_model(model_class: Type[PreTrainedModel], rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+        """Common initialization logic for Mixtral models"""
         config = AutoConfig.from_pretrained("mistralai/Mixtral-8x7B-Instruct-v0.1")
         tokenizer = AutoTokenizer.from_pretrained("mistralai/Mixtral-8x7B-Instruct-v0.1")
         
@@ -23,7 +24,7 @@ class ModelFactory:
         )
         
         device_map = {'': f'cuda:{rank}'}
-        model = MyCustomMixtral.from_pretrained(
+        model = model_class.from_pretrained(
             "mistralai/Mixtral-8x7B-Instruct-v0.1",
             config=config,
             device_map=device_map,
@@ -33,3 +34,13 @@ class ModelFactory:
         )
         
         return [ModelInstance(model, f"cuda:{rank}")], tokenizer
+
+    @staticmethod
+    def create_mixtral_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+        """Initialize Mixtral model and tokenizer for given rank"""
+        return ModelFactory._init_model(MixtralModel, rank)
+
+    @staticmethod
+    def create_mixtral_queue_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+        """Initialize Mixtral Queue model and tokenizer for given rank"""
+        return ModelFactory._init_model(MixtralQueueModel, rank)
