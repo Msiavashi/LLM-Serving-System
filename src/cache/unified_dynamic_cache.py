@@ -12,13 +12,6 @@ class UnifiedDynamicCache(DynamicCache):
     def split_kv_cache(self):
         return self.caches
     
-    def _pad_with_last_token(self, tensor: torch.Tensor, target_length: int) -> torch.Tensor:
-        if tensor.shape[1] >= target_length:
-            return tensor
-        last_token = tensor[:, -1:]
-        padding_length = target_length - tensor.shape[1]
-        return torch.cat([tensor] + [last_token] * padding_length, dim=1)
-
     def update(
             self,
             key_states: torch.Tensor,
@@ -35,10 +28,11 @@ class UnifiedDynamicCache(DynamicCache):
                 key_list.append(keys)
                 value_list.append(values)
                 max_len = max(max_len, keys.shape[1])
-            
             self.max_len = max_len
-            padded_key_list = [self._pad_with_last_token(tensor, max_len) for tensor in key_list]
-            padded_value_list = [self._pad_with_last_token(tensor, max_len) for tensor in value_list]
+            
+            # Efficient padding
+            padded_key_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) if tensor.shape[1] < max_len else tensor for tensor in key_list]
+            padded_value_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) if tensor.shape[1] < max_len else tensor for tensor in value_list]
             
             merged_key_states = torch.stack(padded_key_list)
             merged_value_states = torch.stack(padded_value_list)

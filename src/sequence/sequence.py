@@ -1,5 +1,5 @@
 from .sequence_base import SequenceBase
-
+import time
 
 class Sequence(SequenceBase):
     def __init__(self, prompt, tokenizer, stage, device="cuda"):
@@ -9,6 +9,7 @@ class Sequence(SequenceBase):
         self.expert_outputs_cache = {}
         self.cached_residual = None
         self.stage = stage
+        self.start_time = time.time() * 1000  # Track the start time in milliseconds
         inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(device)
         input_ids = inputs.input_ids
         attention_mask = inputs.attention_mask

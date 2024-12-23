@@ -1,4 +1,5 @@
 import torch
+import time
 from src.queues.fcfs_queue import FCFSQueue
 
 
@@ -19,16 +20,19 @@ class SparseMoeBlockWithQueuesMixin:
 
     def _process_expert_queue(self, expert_idx):
         queue = self.queues[expert_idx]
-        if queue.size() < 1:
+        threshold = 16  # Define your threshold here
+        time_limit = 0.1  # Define your time limit in seconds here
+
+        if queue.is_empty():
             return []
 
-        expert_sequences = []
-        states = []
+        head_item, head_timestamp = queue.peek()
+        if queue.size() < threshold and time.time() - head_timestamp < time_limit:
+            return []
 
-        while queue.size() > 0:
-            seq = queue.dequeue()
-            states.append(seq.cached_hidden_state)
-            expert_sequences.append(seq)
+        num_to_process = min(queue.size(), threshold)
+        expert_sequences = [queue.dequeue() for _ in range(num_to_process)]
+        states = [seq.cached_hidden_state for seq in expert_sequences]
 
         if states:
             batched_states = torch.stack(states)
