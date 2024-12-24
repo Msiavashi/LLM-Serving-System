@@ -20,8 +20,8 @@ class SparseMoeBlockWithQueuesMixin:
 
     def _process_expert_queue(self, expert_idx):
         queue = self.queues[expert_idx]
-        threshold = 16  # Define your threshold here
-        time_limit = 0.1  # Define your time limit in seconds here
+        threshold = 16  # TODO: Define your threshold here. Should be adjusted eitheri dynamically or from a config file
+        time_limit = 0.1  # TODO: Define your time limit in seconds here. Should be adjusted eitheri dynamically or from a config file
 
         if queue.is_empty():
             return []
