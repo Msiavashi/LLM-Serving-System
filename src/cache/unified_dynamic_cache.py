@@ -29,10 +29,8 @@ class UnifiedDynamicCache(DynamicCache):
                 value_list.append(values)
                 max_len = max(max_len, keys.shape[1])
             self.max_len = max_len
-            
-            # Efficient padding
-            padded_key_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) if tensor.shape[1] < max_len else tensor for tensor in key_list]
-            padded_value_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) if tensor.shape[1] < max_len else tensor for tensor in value_list]
+            padded_key_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in key_list]
+            padded_value_list = [torch.nn.functional.pad(tensor, (0, 0, 0, max_len - tensor.shape[1])) for tensor in value_list]
             
             merged_key_states = torch.stack(padded_key_list)
             merged_value_states = torch.stack(padded_value_list)
@@ -44,9 +42,8 @@ class UnifiedDynamicCache(DynamicCache):
         return min(seq_lengths) if seq_lengths else 0
 
     def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = 0) -> int:
-        # Get the minimum usable length across all caches for safety
         usable_lengths = [cache.get_usable_length(new_seq_length, layer_idx) for cache in self.caches]
-        return min(usable_lengths) if usable_lengths else new_seq_length
+        return self.max_len + 100 if self.max_len > 0 else max(usable_lengths) + 100
     
     def get_cache_size(self, unit="mb"):
         return sum(cache.get_cache_size(unit) for cache in self.caches)

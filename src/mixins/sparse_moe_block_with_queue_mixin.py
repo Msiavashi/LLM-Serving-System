@@ -6,6 +6,7 @@ from src.queues.fcfs_queue import FCFSQueue
 class SparseMoeBlockWithQueuesMixin:
     def __init__(self, num_experts, *args, **kwargs):
         self.queues = [FCFSQueue() for _ in range(num_experts)]
+        self.num_experts = num_experts  # Ensure num_experts is stored
 
     def _get_expert_inputs(self, hidden_states, expert_mask, expert_idx):
         idx, top_x = torch.where(expert_mask[expert_idx])
@@ -20,28 +21,31 @@ class SparseMoeBlockWithQueuesMixin:
 
     def _process_expert_queue(self, expert_idx):
         queue = self.queues[expert_idx]
-        threshold = 16  # TODO: Define your threshold here. Should be adjusted eitheri dynamically or from a config file
-        time_limit = 0.1  # TODO: Define your time limit in seconds here. Should be adjusted eitheri dynamically or from a config file
+        threshold = 16  # TODO: Define your threshold here. Should be adjusted either dynamically or from a config file
+        time_limit = 0.1  # TODO: Define your time limit in seconds here. Should be adjusted either dynamically or from a config file
 
         if queue.is_empty():
             return []
 
         head_item, head_timestamp = queue.peek()
-        if queue.size() < threshold and time.time() - head_timestamp < time_limit:
-            return []
+        current_time = time.time()
+        queue_size = queue.size()
+        
+        if current_time - head_timestamp >= time_limit or queue_size >= threshold:
+            num_to_process = queue_size if current_time - head_timestamp >= time_limit else threshold
+            expert_sequences = [queue.dequeue() for _ in range(num_to_process)]
+            states = [seq.cached_hidden_state for seq in expert_sequences]
 
-        num_to_process = min(queue.size(), threshold)
-        expert_sequences = [queue.dequeue() for _ in range(num_to_process)]
-        states = [seq.cached_hidden_state for seq in expert_sequences]
+            if states:
+                batched_states = torch.stack(states)
+                expert_output = self.experts[expert_idx](batched_states)
+                
+                for seq, output in zip(expert_sequences, expert_output):
+                    seq.expert_outputs_cache[expert_idx] = output
 
-        if states:
-            batched_states = torch.stack(states)
-            expert_output = self.experts[expert_idx](batched_states)
-            
-            for seq, output in zip(expert_sequences, expert_output):
-                seq.expert_outputs_cache[expert_idx] = output
+            return expert_sequences
 
-        return expert_sequences
+        return []
 
     def _aggregate_final_states(self, sequences_list, running_batch, hidden_dim, hidden_states):
         final_states = []
