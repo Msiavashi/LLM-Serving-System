@@ -9,7 +9,9 @@ class Sequence(SequenceBase):
         self.expert_outputs_cache = {}
         self.cached_residual = None
         self.stage = stage
-        self.start_time = time.time() * 1000  # Track the start time in milliseconds
+        self.arrival_time = time.time()
+        self.previous_token_time = self.arrival_time  # Initialize with arrival time
+        self.finish_time = None
         inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(device)
         input_ids = inputs.input_ids
         attention_mask = inputs.attention_mask

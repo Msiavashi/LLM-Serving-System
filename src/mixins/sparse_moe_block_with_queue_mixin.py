@@ -22,7 +22,7 @@ class SparseMoeBlockWithQueuesMixin:
     def _process_expert_queue(self, expert_idx):
         queue = self.queues[expert_idx]
         threshold = 16  # TODO: Define your threshold here. Should be adjusted either dynamically or from a config file
-        time_limit = 0.1  # TODO: Define your time limit in seconds here. Should be adjusted either dynamically or from a config file
+        time_limit = 1  # TODO: Define your time limit in seconds here. Should be adjusted either dynamically or from a config file
 
         if queue.is_empty():
             return []
@@ -33,6 +33,7 @@ class SparseMoeBlockWithQueuesMixin:
         
         if current_time - head_timestamp >= time_limit or queue_size >= threshold:
             num_to_process = queue_size if current_time - head_timestamp >= time_limit else threshold
+            # num_to_process = queue_size if current_time - head_timestamp >= time_limit else queue_size
             expert_sequences = [queue.dequeue() for _ in range(num_to_process)]
             states = [seq.cached_hidden_state for seq in expert_sequences]
 
