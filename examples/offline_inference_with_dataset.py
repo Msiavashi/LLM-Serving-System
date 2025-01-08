@@ -26,7 +26,7 @@ def usage_example():
         batch_size=32
     )
     
-    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 1024)
+    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 40192)
     
     # Calculate and print lengths
     prompt_lengths = [len(tokenizer.encode(prompt)) for prompt in prompts]
@@ -45,9 +45,9 @@ def usage_example():
     
     results = scheduler.run_scheduler()
 
-    for seq in results:
-        generated_text = seq.get_generated_text(tokenizer)
-        print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
+    # for seq in results:
+    #     generated_text = seq.get_generated_text(tokenizer)
+    #     print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
 
 if __name__ == "__main__":
     usage_example()

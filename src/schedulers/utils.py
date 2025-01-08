@@ -1,4 +1,5 @@
 import csv
+import os
 
 def write_csv_header(filename, header):
     with open(filename, mode='w', newline='') as file:
@@ -9,4 +10,20 @@ def write_queue_states(filename, iteration, queue_sizes):
     with open(filename, mode='a', newline='') as file:
         writer = csv.writer(file)
         row = [iteration] + [size for _, size in queue_sizes]
+        writer.writerow(row)
+
+def log_queue_sizes(engine, filename="./queue_states.csv"):
+    header = []
+    row = []
+    
+    for layer_idx, layer in enumerate(engine.model.model.layers):
+        for queue_idx, queue in enumerate(layer.block_sparse_moe.queues):
+            header.append(f"layer_{layer_idx}_expert_{queue_idx}")
+            row.append(queue.size())
+    
+    if not os.path.exists(filename):
+        write_csv_header(filename, header)
+    
+    with open(filename, mode='a', newline='') as file:
+        writer = csv.writer(file)
         writer.writerow(row)
