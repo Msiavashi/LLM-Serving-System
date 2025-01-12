@@ -3,13 +3,14 @@ from pydantic import BaseModel
 from typing import List, Literal, Optional
 import uvicorn
 import uuid
+from src.queues.fcfs_queue import FCFSQueue
 from src.config import ConfigManager
-from src.queues.redis_fcfs_queue import RedisFCFSQueue
+from src.queues.storage.redis_storage import RedisQueueStorage
 
 app = FastAPI()
 
 # Initialize Redis queue
-queue = RedisFCFSQueue("prefill_queue", None, None)
+queue = FCFSQueue(RedisQueueStorage("prefill_queue", None, None))
 
 class RequestData(BaseModel):
     prompt: str
