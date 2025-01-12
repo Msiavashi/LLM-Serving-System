@@ -1,19 +1,19 @@
 from src.queues.base_queue import BaseQueue
-import time
 
 class FCFSQueue(BaseQueue):
     """First-Come, First-Served (FCFS) queue implementation."""
     
-    def enqueue(self, item):
-        self.queue.append((item, time.time()))
+    def _storage_enqueue(self, packed_item):
+        self.queue.append(packed_item)
     
-    def dequeue(self):
-        if self.is_empty():
-            raise IndexError("Dequeue from an empty queue.")
-        return self.queue.pop(0)[0]
+    def _storage_dequeue(self):
+        return self.queue.pop(0)
 
-    def peek(self):
-        """Return the item at the front of the queue without removing it as tuple (object, insertion_timestamp)."""
-        if self.is_empty():
-            raise IndexError("Peek from an empty queue.")
+    def _storage_peek(self):
         return self.queue[0]
+
+    def is_empty(self):
+        return len(self.queue) == 0
+
+    def size(self):
+        return len(self.queue)
