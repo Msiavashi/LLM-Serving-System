@@ -1,2 +1,3 @@
 from .fcfs_queue import FCFSQueue
-from .concurrent_queue import ConcurrentQueue
+from .storage.memory_storage import MemoryQueueStorage
+from .storage.redis_storage import RedisQueueStorage
