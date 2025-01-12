@@ -1,7 +1,7 @@
 import time
 
 from src.sequence import Sequence, Stage
-from src.queues import FCFSQueue as SequenceQueue
+from src.queues import FCFSQueue
 from src.batching.policies import SizeBasedBatchPolicy
 from src.monitoring.performance_monitor import PerformanceMonitor
 from .base_scheduler import BaseScheduler
@@ -11,8 +11,8 @@ class FCFSScheduler(BaseScheduler):
     def __init__(self, engine, tokenizer, batch_size=32):
         self.engine = engine
         self.tokenizer = tokenizer
-        self.prefill_queue = SequenceQueue()
-        self.decode_queue = SequenceQueue()
+        self.prefill_queue = FCFSQueue()
+        self.decode_queue = FCFSQueue()
         self.batch_policy = SizeBasedBatchPolicy(batch_size)
         self.monitor = PerformanceMonitor()
 
