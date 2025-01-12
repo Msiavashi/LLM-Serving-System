@@ -1,10 +1,12 @@
 from typing import Dict, Type
 from .base_engine import BaseEngine
 from .model_engine import ModelEngine
+from .async_model_engine import AsyncModelEngine
 
 class EngineFactory:
     _engines: Dict[str, Type[BaseEngine]] = {
         "model": ModelEngine,  # Single model execution
+        "async_model": AsyncModelEngine
     }
 
     @classmethod
