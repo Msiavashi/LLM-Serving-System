@@ -1,19 +1,19 @@
 import time
 import asyncio
 
-from src.sequence import Sequence, Stage
-from src.queues.redis_fcfs_queue import RedisFCFSQueue
+from src.sequence import Stage
 from src.queues.fcfs_queue import FCFSQueue
 from src.batching.policies import SizeBasedBatchPolicy
 from src.monitoring.performance_monitor import PerformanceMonitor
 from .base_scheduler import BaseScheduler
+from src.queues.storage.redis_storage import RedisQueueStorage
 
 class AsyncFCFSScheduler(BaseScheduler):
     def __init__(self, engine, tokenizer, batch_size=32):
         self.engine = engine
         self.tokenizer = tokenizer
-        # Use Redis queue for prefill without explicit redis_client
-        self.prefill_queue = RedisFCFSQueue("prefill_queue", tokenizer, Stage.PREFILL)
+        # Use Redis storage for prefill queue
+        self.prefill_queue = FCFSQueue(RedisQueueStorage("prefill_queue", tokenizer, Stage.PREFILL))
         # Keep in-memory queue for decode
         self.decode_queue = FCFSQueue()
         self.batch_policy = SizeBasedBatchPolicy(batch_size)
@@ -57,7 +57,6 @@ class AsyncFCFSScheduler(BaseScheduler):
                 if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
                     seq.finish_time = current_time
                     finished_sequences.append(seq)
-                    print(f"Sequence {seq}")
                     del seq.kv_cache
                 else:
                     self.decode_queue.enqueue(seq)
