@@ -2,11 +2,13 @@ from typing import Dict, Type
 from .base_scheduler import BaseScheduler
 from .fcfs_scheduler import FCFSScheduler
 from .round_robin_scheduler import RoundRobinScheduler
+from .async_fcfs_scheduler import AsyncFCFSScheduler
 
 class SchedulerFactory:
     _schedulers: Dict[str, Type[BaseScheduler]] = {
         "fcfs": FCFSScheduler,
         "round_robin": RoundRobinScheduler,
+        "async_fcfs": AsyncFCFSScheduler
     }
 
     @classmethod
@@ -19,3 +21,4 @@ class SchedulerFactory:
             raise ValueError(f"Unknown scheduler type: {name}")
         
         return cls._schedulers[name](engine=engine, tokenizer=tokenizer, **kwargs)
+ 
