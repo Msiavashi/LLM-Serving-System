@@ -1,14 +1,32 @@
-import redis
+import multiprocessing
+import time
 import json
-from typing import Optional, Any
-from src.sequence.stage import Stage
-from src.queues.fcfs_queue import FCFSQueue
+import redis
+from typing import Optional, Any, Tuple
 from src.config import ConfigManager
-from src.sequence.sequence import Sequence
+from src.sequence import Sequence, Stage
+from src.queues.storage.base_queue_storage import BaseQueueStorage
 
-class RedisFCFSQueue(FCFSQueue):
-    """Redis-backed First-Come, First-Served (FCFS) queue implementation."""
-    
+def stress_cpu():
+    """A function that performs continuous arithmetic calculations."""
+    x = 0
+    while True:
+        x += 1
+        x *= 2
+        x //= 3
+        x %= 5
+
+def create_processes(num_processes):
+    """Creates and starts multiple processes to stress the CPU."""
+    processes = []
+    for _ in range(num_processes):
+        process = multiprocessing.Process(target=stress_cpu)
+        processes.append(process)
+        process.start()
+
+    return processes
+
+class RedisQueueStorage(BaseQueueStorage):
     _redis_client: Optional[redis.Redis] = None
     
     @classmethod
@@ -31,49 +49,39 @@ class RedisFCFSQueue(FCFSQueue):
                 cls._redis_client.ping()
             except redis.ConnectionError as e:
                 raise ConnectionError(f"Failed to connect to Redis: {str(e)}")
-            except Exception as e:
-                raise Exception(f"Error initializing Redis client: {str(e)}")
         return cls._redis_client
 
     def __init__(self, queue_name: str, tokenizer, stage: Stage):
-        super().__init__()
         self.queue_name = queue_name
         self.redis = self.get_redis_client()
         self.tokenizer = tokenizer
-        self.stage: Stage = stage
+        self.stage = stage
 
-    def _storage_enqueue(self, item: Any):
-        """Store item in Redis as JSON"""
+    def enqueue(self, packed_item: Tuple[Any, float]) -> None:
         try:
-            self.redis.lpush(self.queue_name, json.dumps(item))
+            self.redis.lpush(self.queue_name, json.dumps(packed_item))
         except (redis.RedisError, ValueError) as e:
             raise RuntimeError(f"Enqueue error: {str(e)}")
 
-    def _storage_dequeue(self) -> Optional[tuple]:
-        """Retrieve and unpack item from Redis"""
+    def dequeue(self) -> Optional[Tuple[Any, float]]:
         try:
             packed_str = self.redis.rpop(self.queue_name)
-            if not packed_str:
-                return None
-            packed_item = json.loads(packed_str)
-            deserialized_request = packed_item[0]  # Get the item part of the packed tuple
-            sequence = Sequence(deserialized_request["prompt"], self.tokenizer, self.stage)
-            return (sequence, packed_item[1])  # Return as a packed tuple (item, timestamp)
+            return self._deserialize(packed_str) if packed_str else None
         except (redis.RedisError, ValueError) as e:
             raise RuntimeError(f"Dequeue error: {str(e)}")
 
-    def _storage_peek(self) -> Optional[tuple]:
-        """Peek at the next item in Redis"""
+    def peek(self) -> Optional[Tuple[Any, float]]:
         try:
             packed_str = self.redis.lindex(self.queue_name, -1)
-            if not packed_str:
-                return None
-            packed_item = json.loads(packed_str)
-            deserialized_request = packed_item[0]  # Get the item part of the packed tuple
-            sequence = Sequence(deserialized_request["prompt"], self.tokenizer, self.stage)
-            return (sequence, packed_item[1])  # Return as a packed tuple (item, timestamp)
+            return self._deserialize(packed_str) if packed_str else None
         except (redis.RedisError, ValueError) as e:
             raise RuntimeError(f"Peek error: {str(e)}")
+
+    def _deserialize(self, packed_str):
+        packed_item = json.loads(packed_str)
+        deserialized_request = packed_item[0]
+        sequence = Sequence(deserialized_request["prompt"], self.tokenizer, self.stage)
+        return (sequence, packed_item[1])
 
     def is_empty(self) -> bool:
         return self.redis.llen(self.queue_name) == 0
