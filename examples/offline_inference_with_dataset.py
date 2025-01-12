@@ -26,7 +26,7 @@ def usage_example():
         batch_size=32
     )
     
-    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 40192)
+    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 1024)
     
     # Calculate and print lengths
     prompt_lengths = [len(tokenizer.encode(prompt)) for prompt in prompts]
