@@ -95,3 +95,8 @@ class Batch:
     @staticmethod
     def get_kv_caches(sequences: List["Sequence"]) -> List:
         return [sequence.kv_cache for sequence in sequences]
+
+    def __await__(self):
+        # Make the batch awaitable by returning itself
+        yield self
+        return self
