@@ -69,6 +69,6 @@ class AsyncFCFSScheduler(BaseScheduler):
             )
             
             # Don't print stats continuously
-            if len(finished_sequences) % 100 == 0:
-                self.monitor.print_final_stats()
+            # if len(finished_sequences) % 100 == 0:
+            #     self.monitor.print_final_stats()
 
