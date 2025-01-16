@@ -10,7 +10,7 @@ from utils import read_shared_gpt_dataset
 
 async def process_prompt(client, prompt, model_id):
     try:
-        chat_completion = await client.chat.completions.create(
+        chat_completion = client.chat.completions.create(
             messages=[{
                 "role": "user",
                 "content": prompt
@@ -20,11 +20,11 @@ async def process_prompt(client, prompt, model_id):
             temperature=0.7
         )
         
-        result = chat_completion.choices[0].message.content
+        # result = chat_completion.choices[0].message.content
         # print(f"Prompt: {prompt}\nGenerated Text: {result}\n")
         
     except Exception as e:
-        print(f"Error processing prompt '{prompt}': {str(e)}")
+        print(f"Error processing prompt: {str(e)}")
 
 async def main():
     # Get configuration

@@ -10,7 +10,7 @@ redis:
   max_connections: 10
 
 model:
-  type: mixtral
+  type: mixtral_queue
   params: {}
   rank: 1
   checkpoint: mistralai/Mixtral-8x7B-Instruct-v0.1
