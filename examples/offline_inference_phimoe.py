@@ -3,41 +3,26 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from transformers import AutoConfig, AutoTokenizer
-from transformers import BitsAndBytesConfig
-import torch
-from src.schedulers.scheduler import Scheduler
-# from src.models.phimoe_model import PhiMoe
-from src.models.phimoe_queue_model import PhiMoe
+from src.schedulers.factory import SchedulerFactory
+from src.models.model_factory import ModelFactory
+from src.engines.factory import EngineFactory
+from utils import generate_prompts
 
-def initialize_model_and_tokenizer():
-    config = AutoConfig.from_pretrained("microsoft/Phi-3.5-MoE-instruct")
-    tokenizer = AutoTokenizer.from_pretrained("microsoft/Phi-3.5-MoE-instruct")
-    
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type='nf4',
-        bnb_4bit_compute_dtype=torch.float16,
-    )
-    
-    model = PhiMoe.from_pretrained(
-        "microsoft/Phi-3.5-MoE-instruct",
-        config=config,
-        device_map='auto',
-        quantization_config=quantization_config,
-        low_cpu_mem_usage=True,
-        torch_dtype=torch.float16,
-    )
-    
-    return model, tokenizer
-
-# Rest of the code remains the same
 def usage_example():
-    model, tokenizer = initialize_model_and_tokenizer()
+    # Create model using factory
+    model_instances, tokenizer = ModelFactory.create_phimoe_model(rank=1)
+    model = model_instances[0].model
+    
+    # Create engine using factory
+    engine = EngineFactory.create_engine("model", model=model)
+    
+    # Create scheduler using factory with engine
+    scheduler = SchedulerFactory.create_scheduler(
+        name="fcfs",
+        engine=engine,
+        tokenizer=tokenizer,
+        batch_size=64
+    )
     
     prompts = [
         "How do I make a cake?",
@@ -75,8 +60,9 @@ def usage_example():
         "How to start a business?"
     ]
     
-    scheduler = Scheduler(model, tokenizer)
-
+    # Alternatively, use the generate_prompts utility like mixtral example
+    # prompts = generate_prompts(128, 1024, tokenizer)
+    
     for prompt in prompts:
         scheduler.add_sequence_to_queue(prompt)
     
@@ -85,7 +71,6 @@ def usage_example():
     for seq in results:
         generated_text = seq.get_generated_text(tokenizer)
         print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
-
 
 if __name__ == "__main__":
     usage_example()
