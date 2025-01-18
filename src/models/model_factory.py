@@ -1,13 +1,17 @@
 from typing import Tuple, List, Type
 import torch
 from transformers import AutoConfig, AutoTokenizer, BitsAndBytesConfig, PreTrainedModel
-from src.config.config_manager import ConfigManager
 
 from src.schedulers.round_robin_scheduler import ModelInstance
 from src.models.mixtral_model import MyCustomMixtral as MixtralModel
 from src.models.mixtral_queue_model import MyCustomMixtral as MixtralQueueModel
+from src.models.phimoe_model import PhiMoe as PhiMoeModel
+from src.models.phimoe_queue_model import PhiMoe as PhiMoeQueueModel
 
 class ModelFactory:
+    MIXTRAL_CHECKPOINT = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+    PHIMOE_CHECKPOINT = "microsoft/Phi-3.5-MoE-instruct"
+
     @staticmethod
     def _init_model(model_class: Type[PreTrainedModel], rank: int, checkpoint: str) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Common initialization logic for Mixtral models"""
@@ -42,18 +46,28 @@ class ModelFactory:
             return ModelFactory.create_mixtral_model(rank=rank, **kwargs)
         elif model_type == "mixtral_queue":
             return ModelFactory.create_mixtral_queue_model(rank=rank, **kwargs)
+        elif model_type == "phimoe":
+            return ModelFactory.create_phimoe_model(rank=rank, **kwargs)
+        elif model_type == "phimoe_queue":
+            return ModelFactory.create_phimoe_queue_model(rank=rank, **kwargs)
         raise ValueError(f"Unknown model type: {model_type}")
 
     @staticmethod
     def create_mixtral_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Initialize Mixtral model and tokenizer for given rank"""
-        config_manager = ConfigManager()
-        checkpoint = config_manager.get('model.checkpoint')
-        return ModelFactory._init_model(MixtralModel, rank, checkpoint)
+        return ModelFactory._init_model(MixtralModel, rank, ModelFactory.MIXTRAL_CHECKPOINT)
 
     @staticmethod
     def create_mixtral_queue_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Initialize Mixtral Queue model and tokenizer for given rank"""
-        config_manager = ConfigManager()
-        checkpoint = config_manager.get('model.checkpoint')
-        return ModelFactory._init_model(MixtralQueueModel, rank, checkpoint)
+        return ModelFactory._init_model(MixtralQueueModel, rank, ModelFactory.MIXTRAL_CHECKPOINT)
+
+    @staticmethod
+    def create_phimoe_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+        """Initialize Phi MOE model and tokenizer for given rank"""
+        return ModelFactory._init_model(PhiMoeModel, rank, ModelFactory.PHIMOE_CHECKPOINT)
+
+    @staticmethod
+    def create_phimoe_queue_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+        """Initialize Phi MOE Queue model and tokenizer for given rank"""
+        return ModelFactory._init_model(PhiMoeQueueModel, rank, ModelFactory.PHIMOE_CHECKPOINT)
