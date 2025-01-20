@@ -1,168 +1,53 @@
-import math
 from typing import List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import PhimoeForCausalLM, PhimoeConfig
-from transformers.models.phimoe.modeling_phimoe import PhimoeSparseMoeBlock, PhimoeDecoderLayer, sparsemixer, PhimoeModel, MoeModelOutputWithPast, PhimoeAttention, apply_rotary_pos_emb, repeat_kv
+from transformers.models.phimoe.modeling_phimoe import (
+    PhimoeSparseMoeBlock, PhimoeDecoderLayer, PhimoeModel, 
+    MoeModelOutputWithPast, PhimoeAttention
+)
+from src.mixins.model_input_mixin import ModelInputMixin
+from src.mixins.model_output_mixin import ModelOutputMixin
+from src.mixins.sparse_moe_block_with_queue_mixin import SparseMoeBlockWithQueuesMixin
 from src.batching.batch import Batch
 from src.cache.unified_dynamic_cache import UnifiedDynamicCache as DynamicCache
 from transformers.cache_utils import Cache
-from src.queues.fcfs_queue import FCFSQueue
-from src.sequence import Sequence
 
 
-class MyPhimoeAttention(PhimoeAttention):
-    def __init__(self, config: PhimoeConfig, layer_idx: Optional[int] = None):
-        super().__init__(config, layer_idx)
-        
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
-        output_attentions: bool = False,
-        use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None,
-        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        bsz, q_len, _ = hidden_states.size()
-
-        query_states = self.q_proj(hidden_states)
-        key_states = self.k_proj(hidden_states)
-        value_states = self.v_proj(hidden_states)
-
-        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
-        cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-
-        if past_key_value is not None:
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
-            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-
-        # repeat k/v heads if n_kv_heads < n_heads
-        key_states = repeat_kv(key_states, self.num_key_value_groups)
-        value_states = repeat_kv(value_states, self.num_key_value_groups)
-
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-
-        if attention_mask is not None:  # no matter the length, we just slice it
-            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-            attn_weights = attn_weights + causal_mask
-
-        # upcast attention to fp32
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
-        attn_output = torch.matmul(attn_weights, value_states)
-
-        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-            raise ValueError(
-                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-                f" {attn_output.size()}"
-            )
-
-        attn_output = attn_output.transpose(1, 2).contiguous()
-
-        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
-
-        attn_output = self.o_proj(attn_output)
-
-        if not output_attentions:
-            attn_weights = None
-
-        return attn_output, attn_weights, past_key_value
-
-class MyPhimoeSparseMoeBlock(PhimoeSparseMoeBlock):
+class MyPhimoeSparseMoeBlock(PhimoeSparseMoeBlock, SparseMoeBlockWithQueuesMixin):
     def __init__(self, config):
-        super().__init__(config)
-        self.top_k = 1
-        self.queues = [FCFSQueue() for _ in range(self.num_experts)]
+        PhimoeSparseMoeBlock.__init__(self, config)
+        SparseMoeBlockWithQueuesMixin.__init__(self, self.num_experts)
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor, running_batch) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
-
-        # Combine reshape and conditional jitter into one operation
+        
         hidden_states = hidden_states.view(-1, hidden_dim)
         if self.training and self.input_jitter_noise > 0:
-            hidden_states.mul_(
-                1.0 + (torch.rand_like(hidden_states) * 2 - 1) * self.input_jitter_noise
-            )
+            hidden_states.mul_(1.0 + (torch.rand_like(hidden_states) * 2 - 1) * self.input_jitter_noise)
 
-        # Compute routing weights more efficiently
         router_logits = self.gate(hidden_states)
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
         routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
         routing_weights = routing_weights.div_(routing_weights.sum(dim=-1, keepdim=True)).to(hidden_states.dtype)
 
-        # Pre-allocate final hidden states tensor
-        final_hidden_states = torch.zeros(
-            (batch_size * sequence_length, hidden_dim),
-            dtype=hidden_states.dtype,
-            device=hidden_states.device
-        )
-
-        # Optimize expert routing
         expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
         selected_expert_indices = torch.nonzero(expert_mask.sum(dim=(1, 2))).squeeze(-1)
-
-        is_decode = PhiMoe.running_sequences and PhiMoe.running_sequences[0].stage == "decode"
-
-        if is_decode:
-            for expert_idx in selected_expert_indices:
-                idx, top_x = torch.where(expert_mask[expert_idx])
-                current_state = hidden_states[top_x]
-                token_indices = top_x.tolist()
-                selected_sequences = [PhiMoe.running_sequences[idx] for idx in token_indices]
-
-                # Batch sequence updates
-                for seq, state in zip(selected_sequences, current_state):
-                    seq.cached_hidden_state = state
-                    self.queues[expert_idx].enqueue(seq)
-
-            PhiMoe.running_sequences.clear()
-            states_list = []
-            sequences_list = []
-
-            for expert_idx in range(self.num_experts):
-                if self.queues[expert_idx].size() >= 4:
-                    expert_sequences = []
-                    current_states = []
-
-                    while self.queues[expert_idx].size() > 0:
-                        seq = self.queues[expert_idx].dequeue()
-                        current_states.append(seq.cached_hidden_state)
-                        expert_sequences.append(seq)
-
-                    if current_states:
-                        states = torch.stack(current_states)
-                        states_list.append((expert_idx, states))
-                        sequences_list.extend(expert_sequences)
-
-            # Process expert computations
-            final_states = []
-            for expert_idx, states in states_list:
-                expert_output = self.experts[expert_idx](states)
-                final_states.append(expert_output)
-
-            PhiMoe.running_sequences.extend(sequences_list)
-            final_hidden_states = torch.cat(final_states) if final_states else torch.zeros(
-                (0, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
-            )
-            batch_size = len(PhiMoe.running_sequences)
-
+        
+        if running_batch.is_decode():
+            final_hidden_states = self.process_decode(hidden_states, expert_mask, selected_expert_indices, running_batch, hidden_dim)
+            batch_size = running_batch.size()
         else:
-            # Process non-decode mode more efficiently
-            for expert_idx in selected_expert_indices:
-                idx, top_x = torch.where(expert_mask[expert_idx])
-                current_state = hidden_states[top_x]
-                current_hidden_states = self.experts[expert_idx](current_state)
-                final_hidden_states.index_add_(0, top_x, current_hidden_states)
+            final_hidden_states = torch.zeros(
+                (batch_size * sequence_length, hidden_dim), 
+                dtype=hidden_states.dtype, 
+                device=hidden_states.device
+            )
+            final_hidden_states = self.process_prefill(hidden_states, expert_mask, selected_expert_indices, final_hidden_states)
 
         return final_hidden_states.view(batch_size, sequence_length, hidden_dim), router_logits
+
 
 class MyPhimoeDecoderLayer(PhimoeDecoderLayer):
     def __init__(self, config: PhimoeConfig, layer_idx: int):
@@ -179,15 +64,14 @@ class MyPhimoeDecoderLayer(PhimoeDecoderLayer):
         output_router_logits: Optional[bool] = False,
         use_cache: Optional[bool] = False,
         cache_position: Optional[torch.LongTensor] = None,
+        running_batch: Batch = None,
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         **kwargs,
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-
+    ):
         residual = hidden_states
-
         hidden_states = self.input_layernorm(hidden_states)
 
-        if PhiMoe.running_sequences:
+        if not running_batch.is_empty():
             hidden_states, self_attn_weights, present_key_value = self.self_attn(
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
@@ -200,30 +84,27 @@ class MyPhimoeDecoderLayer(PhimoeDecoderLayer):
             )
         else:
             present_key_value = None
-            
-        hidden_states = residual + hidden_states
 
+        hidden_states = residual + hidden_states
         residual = hidden_states
-        
         hidden_states = self.post_attention_layernorm(hidden_states)
-        
-        if PhiMoe.running_sequences:
-            cached_residuals = residual.clone()
+
+        if not running_batch.is_empty():
+            cached_residuals = residual
 
             if use_cache:
-                # splited_kv_cache = present_key_value.split_layer_to_caches(self.layer_idx, [seq.kv_cache for seq in MyCustomMixtral.running_sequences])
                 splited_kv_cache = present_key_value.split_kv_cache()
             else:
-                splited_kv_cache = [None] * len(PhiMoe.running_sequences)
+                splited_kv_cache = [None] * running_batch.size()
 
-            for seq, cached_residual, kv_cache in zip(PhiMoe.running_sequences, cached_residuals, splited_kv_cache):
+            for seq, cached_residual, kv_cache in zip(running_batch.sequences, cached_residuals, splited_kv_cache):
                 seq.cached_residual = cached_residual
                 seq.kv_cache = kv_cache
-        
-        hidden_states, router_logits = self.block_sparse_moe(hidden_states)
-        
-        if PhiMoe.running_sequences:
-            residual = torch.stack([seq.cached_residual for seq in PhiMoe.running_sequences], dim=0)
+
+        hidden_states, router_logits = self.block_sparse_moe(hidden_states, running_batch)
+
+        if not running_batch.is_empty():
+            residual = torch.stack([seq.cached_residual for seq in running_batch.sequences], dim=0)
             hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
@@ -239,10 +120,14 @@ class MyPhimoeDecoderLayer(PhimoeDecoderLayer):
 
         return outputs
 
-class PhimoeModel(PhimoeModel):
-    
-    def __init__(self, config: PhimoeConfig):
+
+class PhiMoeModel(PhimoeModel):
+    def __init__(self, config):
         super().__init__(config)
+        self.running_batch: Batch = None
+        
+    def set_running_batch(self, batch):
+        self.running_batch = batch
 
     def get_input_embeddings(self):
         return self.embed_tokens
@@ -344,8 +229,8 @@ class PhimoeModel(PhimoeModel):
                     position_embeddings,
                 )
             else:
-                if PhiMoe.running_sequences and PhiMoe.running_sequences[0].stage == "decode":
-                    past_key_values = DynamicCache([seq.kv_cache for seq in PhiMoe.running_sequences])
+                if self.running_batch and self.running_batch.is_decode():
+                    past_key_values = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences])
                 layer_outputs = decoder_layer(
                     hidden_states,
                     attention_mask=causal_mask,
@@ -356,12 +241,10 @@ class PhimoeModel(PhimoeModel):
                     use_cache=use_cache,
                     cache_position=cache_position,
                     position_embeddings=position_embeddings,
+                    running_batch=self.running_batch,
                 )
 
             hidden_states = layer_outputs[0]
-
-            # if use_cache:
-            #     next_decoder_cache = layer_outputs[2 if output_attentions else 1]
 
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
@@ -371,11 +254,10 @@ class PhimoeModel(PhimoeModel):
 
         hidden_states = self.norm(hidden_states)
 
-        # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
-        next_cache = DynamicCache([seq.kv_cache for seq in PhiMoe.running_sequences]) if use_cache else None
+        next_cache = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences]) if use_cache else None
         
         if return_legacy_cache:
             next_cache = next_cache.to_legacy_cache()
@@ -394,36 +276,25 @@ class PhimoeModel(PhimoeModel):
             router_logits=all_router_logits,
         )
 
-class PhiMoe(PhimoeForCausalLM):
-    running_sequences: List[Sequence]
-    
+
+class PhiMoe(PhimoeForCausalLM, ModelInputMixin, ModelOutputMixin):
     def __init__(self, config):
         super().__init__(config)
-        self.model = PhimoeModel(config)
+        self.model = PhiMoeModel(config)
+        self._initialize_layers(config)
+        ModelInputMixin.__init__(self)
+        
+    def forward(self, batch: Batch, **kwargs) -> Batch:
+        input_ids, attention_mask, past_key_values, running_batch = self._prepare_inputs(batch)
+
+        self.model.set_running_batch(running_batch)
+        outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
+
+        self._update_batch(outputs, running_batch)
+
+        return self.running_batch
+    
+    def _initialize_layers(self, config):
         for i in range(config.num_hidden_layers):
             self.model.layers[i] = MyPhimoeDecoderLayer(config, i)
             self.model.layers[i].block_sparse_moe = MyPhimoeSparseMoeBlock(config)
-            self.model.layers[i].self_attn = MyPhimoeAttention(config, i)
-        
-    def forward(self, batch: Batch, **kwargs):
-        PhiMoe.running_sequences = batch.sequences
-        input_ids_list, attention_mask_list, past_key_values_list = batch.model_inputs.get_all_inputs()
-        
-        input_ids = torch.cat(input_ids_list, dim=0)
-        attention_mask = torch.cat(attention_mask_list, dim=0)
-        
-        if past_key_values_list:
-            past_key_values = DynamicCache(past_key_values_list)
-        
-        outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
-        
-        logits = outputs.logits
-        kv_cache = outputs.past_key_values
-        
-        splited_kv_cache = kv_cache.split_kv_cache()
-        
-        new_batch = Batch(PhiMoe.running_sequences)
-        new_batch.update_sequences(logits, splited_kv_cache)
-        
-        return new_batch
-    
