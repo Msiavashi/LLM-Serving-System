@@ -14,10 +14,11 @@ class FCFSScheduler(BaseScheduler):
         self.prefill_queue = FCFSQueue()
         self.decode_queue = FCFSQueue()
         self.batch_policy = SizeBasedBatchPolicy(batch_size)
-        self.monitor = PerformanceMonitor()
+        self.monitor = PerformanceMonitor(measure_after_first_decode=False)
 
     def add_sequence_to_queue(self, prompt, stage=Stage.PREFILL):
-        seq = Sequence(prompt, self.tokenizer, stage)
+        seq = Sequence(prompt, self.tokenizer, stage, self.engine.cache_provider)
+        
         if stage == Stage.PREFILL:
             self.prefill_queue.enqueue(seq)
         elif stage == Stage.DECODE:
@@ -65,6 +66,17 @@ class FCFSScheduler(BaseScheduler):
             )
             
             # log_queue_sizes(self.engine)
+        
+            # total_seqs = 0
+            # for layer_idx, layer in enumerate(self.engine.model.model.layers):
+            #     for queue_idx, queue in enumerate(layer.block_sparse_moe.queues):
+            #         total_seqs += queue.size()
+                
+            # print(f"Total sequences in queues: {total_seqs}")
+            
+            # if len(output_batch.sequences) != 0 and is_decode:
+            #     print("-----------------------------")
+                # exit(0)
              
         self.monitor.print_final_stats()
         return finished_sequences

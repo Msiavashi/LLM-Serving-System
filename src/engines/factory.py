@@ -2,6 +2,7 @@ from typing import Dict, Type
 from .base_engine import BaseEngine
 from .model_engine import ModelEngine
 from .async_model_engine import AsyncModelEngine
+from src.cache.cache_provider import CacheProvider
 
 class EngineFactory:
     _engines: Dict[str, Type[BaseEngine]] = {
@@ -28,4 +29,10 @@ class EngineFactory:
         else:
             if model is None:
                 raise ValueError(f"Model argument required for engine type: {name}")
-            return cls._engines[name](model)
+                
+            cache_provider = CacheProvider(
+                model.config,
+                cache_type=kwargs.get("cache_implementation", "dynamic")
+            )
+            
+            return cls._engines[name](model, cache_provider=cache_provider, **kwargs)

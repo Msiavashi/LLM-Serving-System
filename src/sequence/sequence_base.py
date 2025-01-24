@@ -1,7 +1,4 @@
 import torch
-
-from src.cache.dynamic_cache import DynamicCacheEx as DynamicCache
-from src.samplers.sampling_metadata import SamplingMetadata
 from .stage import Stage
 
 class SequenceBase:
@@ -18,9 +15,10 @@ class SequenceBase:
             self.generated_tokens = generated_tokens.to(self.device)
         else:
             self.generated_tokens = torch.empty(0, dtype=self.input_ids.dtype, device=self.device)
-        self.kv_cache = kv_cache if kv_cache is not None else DynamicCache()
         self.stage: Stage = Stage.PREFILL
-        self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=10)
+        self.kv_cache = kv_cache
+        self.sampling_metadata = sampling_metadata
+        
 
     def update(self, next_token_ids, new_kv_cache):
         next_token_ids = next_token_ids.to(self.device)

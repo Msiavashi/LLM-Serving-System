@@ -18,5 +18,9 @@ class SamplingMetadata:
         current_token_count (int): The current number of tokens in the sequence.
     """
     def __init__(self, num_tokens):
-        self.max_sequence_length = num_tokens
+        self._max_sequence_length = num_tokens
         self.current_token_count = 0
+ 
+    @property
+    def max_sequence_length(self):
+        return self._max_sequence_length

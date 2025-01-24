@@ -5,13 +5,14 @@
 import torch
 from src.batching.batch import Batch
 from src.cache.unified_dynamic_cache import UnifiedDynamicCache as DynamicCache
+from src.cache.unified_static_cache import UnifiedStaticCache as StaticCache 
 
 class ModelInputMixin:
     
     def __init__(self):
         self.running_batch: Batch = None
     
-    def _prepare_inputs(self, batch: Batch):
+    def _prepare_inputs(self, batch: Batch, **kwargs):
         
         self.running_batch = batch
         
@@ -20,7 +21,7 @@ class ModelInputMixin:
         input_ids = torch.cat(input_ids_list, dim=0)
         attention_mask = torch.cat(attention_mask_list, dim=0)
         
-        past_key_values = DynamicCache(past_key_values_list) if past_key_values_list else None
+        past_key_values = StaticCache(past_key_values_list) if past_key_values_list else None
         
         return input_ids, attention_mask, past_key_values, self.running_batch
 

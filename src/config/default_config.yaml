@@ -24,3 +24,4 @@ scheduler:
 
 engine:
   type: async_model
+  cache_implementation: static

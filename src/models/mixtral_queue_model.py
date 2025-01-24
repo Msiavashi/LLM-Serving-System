@@ -10,6 +10,7 @@ from src.batching.batch import Batch
 from typing import Optional, Tuple
 from transformers.cache_utils import Cache
 from src.cache.unified_dynamic_cache import UnifiedDynamicCache as DynamicCache
+from src.cache.unified_static_cache import UnifiedStaticCache as StaticCache
 
 
 class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock, SparseMoeBlockWithQueuesMixin):
@@ -31,6 +32,11 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock, SparseMoeBlockWithQueuesMix
         routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
         routing_weights = routing_weights.div_(routing_weights.sum(dim=-1, keepdim=True)).to(hidden_states.dtype)
 
+        # Uncomment to have even distribution
+        # num_tokens = selected_experts.shape[0]
+        # expert_indices = torch.arange(num_tokens, device=selected_experts.device)
+        # selected_experts[:, 0] = expert_indices % self.num_experts
+        # selected_experts[:, 1] = (expert_indices + 1) % self.num_experts
 
         # Optimize expert routing
         expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
@@ -219,7 +225,8 @@ class MixtralModel(MixtralModel):
                     )
                 else:
                     if self.running_batch.is_decode():
-                        past_key_values = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences])
+                        # past_key_values = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences])
+                        past_key_values = StaticCache([seq.kv_cache for seq in self.running_batch.sequences])
                          
                     layer_outputs = decoder_layer(
                         hidden_states,
@@ -252,7 +259,8 @@ class MixtralModel(MixtralModel):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
                 
-            next_cache = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences]) if use_cache else None
+            # next_cache = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences]) if use_cache else None
+            next_cache = StaticCache([seq.kv_cache for seq in self.running_batch.sequences]) if use_cache else None
             
             if return_legacy_cache:
                 next_cache = next_cache.to_legacy_cache()
@@ -280,7 +288,7 @@ class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
         
     def forward(self, batch: Batch, **kwargs) -> Batch:
             # Prepare inputs
-            input_ids, attention_mask, past_key_values, running_batch = self._prepare_inputs(batch)
+            input_ids, attention_mask, past_key_values, running_batch = self._prepare_inputs(batch, **kwargs)
 
             self.model.set_running_batch(running_batch)
             outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
