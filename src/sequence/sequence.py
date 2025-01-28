@@ -2,7 +2,7 @@ from .sequence_base import SequenceBase
 import time
 
 class Sequence(SequenceBase):
-    def __init__(self, prompt, tokenizer, stage, device="cuda"):
+    def __init__(self, prompt, tokenizer, stage, device="cuda", priority: int=0):
         self.tokenizer = tokenizer
         self.cached_hidden_state = None
         self.routing_weights_cache = {}
@@ -15,4 +15,4 @@ class Sequence(SequenceBase):
         inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(device)
         input_ids = inputs.input_ids
         attention_mask = inputs.attention_mask
-        super().__init__(prompt, input_ids, attention_mask, kv_cache=None, device=device)
+        super().__init__(prompt, input_ids, attention_mask, kv_cache=None, device=device, priority=priority)

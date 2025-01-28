@@ -7,11 +7,12 @@ from .stage import Stage
 class SequenceBase:
     sequence_id = 0
 
-    def __init__(self, prompt, input_ids, attention_mask, generated_tokens=None, kv_cache=None, device="cuda", sampling_metadata=None):
+    def __init__(self, prompt, input_ids, attention_mask, generated_tokens=None, kv_cache=None, device="cuda", sampling_metadata=None, priority: int=0):
         self.sequence_id = SequenceBase.sequence_id
         SequenceBase.sequence_id += 1
         self.prompt = prompt
         self.device = device
+        self.priority = priority
         self.input_ids = input_ids.squeeze(0).to(self.device)
         self.attention_mask = attention_mask.squeeze(0).to(self.device)
         if generated_tokens is not None:
@@ -35,7 +36,7 @@ class SequenceBase:
 
     def __str__(self):
         return (
-            f"Sequence(sequence_id={self.sequence_id}, prompt={self.prompt}, generated_text={self.generated_tokens})"
+            f"Sequence(sequence_id={self.sequence_id}, priority={self.priority}, prompt={self.prompt}, generated_text={self.generated_tokens})"
         )
 
     def __repr__(self):
