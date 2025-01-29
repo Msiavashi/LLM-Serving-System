@@ -16,8 +16,8 @@ class FCFSScheduler(BaseScheduler):
         self.batch_policy = SizeBasedBatchPolicy(batch_size)
         self.monitor = PerformanceMonitor()
 
-    def add_sequence_to_queue(self, prompt, stage=Stage.PREFILL):
-        seq = Sequence(prompt, self.tokenizer, stage)
+    def add_sequence_to_queue(self, prompt, stage=Stage.PREFILL, priority=0):
+        seq = Sequence(prompt, self.tokenizer, stage, priority=priority)
         if stage == Stage.PREFILL:
             self.prefill_queue.enqueue(seq)
         elif stage == Stage.DECODE:

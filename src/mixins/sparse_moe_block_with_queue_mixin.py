@@ -1,7 +1,7 @@
+from typing import List
 import torch
 import time
 from src.queues.fcfs_queue import FCFSQueue
-
 
 class SparseMoeBlockWithQueuesMixin:
     def __init__(self, num_experts, *args, **kwargs):
@@ -19,34 +19,20 @@ class SparseMoeBlockWithQueuesMixin:
             final_hidden_states.index_add_(0, top_x, current_hidden_states)
         return final_hidden_states
 
-    def _process_expert_queue(self, expert_idx):
+    def _process_expert_queue(self, expert_idx, received_sequences: List):
         queue = self.queues[expert_idx]
-        threshold = 16  # TODO: Define your threshold here. Should be adjusted either dynamically or from a config file
-        time_limit = 1  # TODO: Define your time limit in seconds here. Should be adjusted either dynamically or from a config file
-
-        if queue.is_empty():
+        if queue.is_empty() and not received_sequences:
             return []
 
-        head_item, head_timestamp = queue.peek()
-        current_time = time.time()
-        queue_size = queue.size()
-        
-        if current_time - head_timestamp >= time_limit or queue_size >= threshold:
-            num_to_process = queue_size if current_time - head_timestamp >= time_limit else threshold
-            # num_to_process = queue_size if current_time - head_timestamp >= time_limit else queue_size
-            expert_sequences = [queue.dequeue() for _ in range(num_to_process)]
-            states = [seq.cached_hidden_state for seq in expert_sequences]
+        sequences_to_process = received_sequences + queue.dequeue_all()
 
-            if states:
-                batched_states = torch.stack(states)
-                expert_output = self.experts[expert_idx](batched_states)
-                
-                for seq, output in zip(expert_sequences, expert_output):
-                    seq.expert_outputs_cache[expert_idx] = output
+        states = torch.stack([seq.cached_hidden_state for seq in sequences_to_process])
+        expert_output = self.experts[expert_idx](states)
 
-            return expert_sequences
+        for seq, output in zip(sequences_to_process, expert_output):
+            seq.expert_outputs_cache[expert_idx] = output
 
-        return []
+        return sequences_to_process
 
     def _aggregate_final_states(self, sequences_list, running_batch, hidden_dim, hidden_states):
         final_states = []
@@ -62,21 +48,23 @@ class SparseMoeBlockWithQueuesMixin:
         )
 
     def process_decode(self, hidden_states, expert_mask, selected_expert_indices, running_batch, hidden_dim):
-        # Enqueue sequences to expert queues
-        for expert_idx in selected_expert_indices:
-            top_x, current_state = self._get_expert_inputs(hidden_states, expert_mask, expert_idx)
+        sequences_to_process = []
+        expert_inputs = {expert_idx: self._get_expert_inputs(hidden_states, expert_mask, expert_idx) 
+                         for expert_idx in selected_expert_indices}
+
+        for expert_idx, (top_x, current_state) in expert_inputs.items():
             token_indices = top_x.tolist()
             selected_sequences = [running_batch.sequences[idx] for idx in token_indices]
-            
             for seq, state in zip(selected_sequences, current_state):
                 seq.cached_hidden_state = state
-                self.queues[expert_idx].enqueue(seq)
+            
+            high_priority_found = any(seq.priority == 1 for seq in selected_sequences)
+            
+            if high_priority_found:
+                sequences_to_process.extend(self._process_expert_queue(expert_idx, selected_sequences))
+            else:
+                self.queues[expert_idx].enqueue_many(selected_sequences)
         
         running_batch.clear()
         
-        # Process queues and collect sequences
-        sequences_list = []
-        for expert_idx in range(self.num_experts):
-            sequences_list.extend(self._process_expert_queue(expert_idx))
-
-        return self._aggregate_final_states(sequences_list, running_batch, hidden_dim, hidden_states)
+        return self._aggregate_final_states(sequences_to_process, running_batch, hidden_dim, hidden_states)

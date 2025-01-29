@@ -1,46 +1,52 @@
 from typing import Any, Dict, List, Optional, Tuple
-from .dynamic_cache import DynamicCacheEx as DynamicCache
 import torch
+import torch.nn.functional as F
+from .dynamic_cache import DynamicCacheEx as DynamicCache
+
 
 class UnifiedDynamicCache(DynamicCache):
     
-    def __init__(self, caches: List[DynamicCache] = None):
-        self.caches: List[DynamicCache] = caches if caches is not None else []
+    def __init__(self, caches: Optional[List[DynamicCache]] = None):
         super().__init__()
-        
-    def split_kv_cache(self):
+        self.caches: List[DynamicCache] = caches if caches is not None else []
+
+    def split_kv_cache(self) -> List[DynamicCache]:
         return self.caches
-    
-    def _update_single_cache(self, cache, key_state, value_state, layer_idx, cache_kwargs):
-        return cache.update(key_state, value_state, layer_idx, cache_kwargs)
 
     def update(
-            self,
-            key_states: torch.Tensor,
-            value_states: torch.Tensor,
-            layer_idx: int,
-            cache_kwargs: Optional[Dict[str, Any]] = None,
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self,
+        key_states: torch.Tensor,
+        value_states: torch.Tensor,
+        layer_idx: int,
+        cache_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Collect updated keys/values from each sub-cache
+        updated_keys = []
+        updated_values = []
+        for i, cache in enumerate(self.caches):
+            k, v = cache.update(
+                key_states[i : i + 1], 
+                value_states[i : i + 1], 
+                layer_idx, 
+                cache_kwargs
+            )
+            updated_keys.append(k)
+            updated_values.append(v)
 
-            # Update caches and track max length
-            max_len = 0
-            updated_keys = []
-            updated_values = []
-            
-            for i, cache in enumerate(self.caches):
-                k, v = cache.update(key_states[i:i+1], value_states[i:i+1], layer_idx, cache_kwargs)
-                updated_keys.append(k)
-                updated_values.append(v)
-                max_len = max(max_len, k.shape[2])  # Update max_len based on sequence length (dim 2)
-            
-            # Ensure all keys and values have the same sequence length by padding
-            for i in range(len(updated_keys)):
-                if updated_keys[i].shape[2] < max_len:
-                    pad_size = max_len - updated_keys[i].shape[2]
-                    updated_keys[i] = torch.nn.functional.pad(updated_keys[i], (0, 0, 0, pad_size))
-                    updated_values[i] = torch.nn.functional.pad(updated_values[i], (0, 0, 0, pad_size))
-            
-            return torch.cat(updated_keys, dim=0), torch.cat(updated_values, dim=0)
+        # Compute max sequence length across all updated keys
+        max_len = max(k.shape[2] for k in updated_keys)
+
+        # Pad keys/values to ensure uniform sequence length
+        for i, (k, v) in enumerate(zip(updated_keys, updated_values)):
+            seq_len = k.shape[2]
+            if seq_len < max_len:
+                pad_size = max_len - seq_len
+                updated_keys[i] = F.pad(k, (0, 0, 0, pad_size))
+                updated_values[i] = F.pad(v, (0, 0, 0, pad_size))
+
+        # Concatenate along the batch dimension (dim=0)
+        return torch.cat(updated_keys, dim=0), torch.cat(updated_values, dim=0)
+
 
     def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
         seq_lengths = [cache.get_seq_length(layer_idx) for cache in self.caches]
