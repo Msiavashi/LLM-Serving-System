@@ -10,7 +10,7 @@ redis:
   max_connections: 10
 
 model:
-  type: mixtral_queue
+  type: mixtral
   params: {}
   rank: 1
 
@@ -20,7 +20,7 @@ server:
 
 scheduler:
   type: async_fcfs
-  batch_size: 32
+  batch_size: 8
 
 engine:
   type: async_model

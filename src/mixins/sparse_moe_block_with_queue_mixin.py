@@ -34,24 +34,12 @@ class SparseMoeBlockWithQueuesMixin:
 
         return sequences_to_process
 
-    def _aggregate_final_states(self, sequences_list, running_batch, hidden_dim, hidden_states):
-        final_states = []
-        for seq in sequences_list:
-            if len(seq.expert_outputs_cache) == self.top_k:
-                output = sum(seq.expert_outputs_cache.values())
-                final_states.append(output)
-                seq.expert_outputs_cache.clear()
-                running_batch.add_sequence(seq)
-
-        return torch.cat(final_states) if final_states else torch.zeros(
-            (0, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
-        )
-
     def process_decode(self, hidden_states, expert_mask, selected_expert_indices, running_batch, hidden_dim):
         sequences_to_process = []
+        final_states = []
         expert_inputs = {expert_idx: self._get_expert_inputs(hidden_states, expert_mask, expert_idx) 
                          for expert_idx in selected_expert_indices}
-
+        final_sequences = []
         for expert_idx, (top_x, current_state) in expert_inputs.items():
             token_indices = top_x.tolist()
             selected_sequences = [running_batch.sequences[idx] for idx in token_indices]
@@ -61,10 +49,19 @@ class SparseMoeBlockWithQueuesMixin:
             high_priority_found = any(seq.priority == 1 for seq in selected_sequences)
             
             if high_priority_found:
-                sequences_to_process.extend(self._process_expert_queue(expert_idx, selected_sequences))
+                processed_sequences = self._process_expert_queue(expert_idx, selected_sequences)
+                sequences_to_process.extend(processed_sequences)
+                for seq in processed_sequences:
+                    if len(seq.expert_outputs_cache) == self.top_k:
+                        output = sum(seq.expert_outputs_cache.values())
+                        final_states.append(output)
+                        seq.expert_outputs_cache.clear()
+                        final_sequences.append(seq)
             else:
                 self.queues[expert_idx].enqueue_many(selected_sequences)
         
         running_batch.clear()
-        
-        return self._aggregate_final_states(sequences_to_process, running_batch, hidden_dim, hidden_states)
+        running_batch.add_sequence(final_sequences)
+        return torch.cat(final_states) if final_states else torch.zeros(
+            (0, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
+        )

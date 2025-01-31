@@ -42,7 +42,7 @@ async def main():
     prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 1024)
     
     # Generate Poisson arrival times (10 requests per second)
-    arrival_rate = 10.0  # requests per second
+    arrival_rate = 1  # requests per second
     num_requests = len(prompts)
     intervals = np.random.exponential(1.0/arrival_rate, num_requests)
     arrival_times = np.cumsum(intervals)

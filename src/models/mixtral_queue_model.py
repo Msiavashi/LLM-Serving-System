@@ -132,7 +132,8 @@ class MixtralModel(MixtralModel):
     def __init__(self, config):
         super().__init__(config)
         self.running_batch: Batch = None
-        
+        self.dynamic_cache = None  # Add this line to store the DynamicCache instance
+
     def set_running_batch(self, batch):
         self.running_batch = batch
     
@@ -172,7 +173,9 @@ class MixtralModel(MixtralModel):
                     use_cache = False
 
             if use_cache and past_key_values is None:
-                past_key_values = DynamicCache()
+                if self.dynamic_cache is None:
+                    self.dynamic_cache = DynamicCache()
+                past_key_values = self.dynamic_cache
 
             if inputs_embeds is None:
                 inputs_embeds = self.embed_tokens(input_ids)
@@ -253,6 +256,10 @@ class MixtralModel(MixtralModel):
                 all_hidden_states += (hidden_states,)
                 
             next_cache = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences]) if use_cache else None
+            
+            # Update the dynamic_cache with the new cache
+            if use_cache:
+                self.dynamic_cache = next_cache
             
             # if return_legacy_cache:
             #     next_cache = next_cache.to_legacy_cache()
