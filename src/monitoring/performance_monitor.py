@@ -38,7 +38,6 @@ class PerformanceMonitor:
         p90_high_priority_latency = np.percentile(high_priority_latencies, 90) if high_priority_latencies else 0
         p99_high_priority_latency = np.percentile(high_priority_latencies, 99) if high_priority_latencies else 0
         
-        print("-" * 40)
         print(f"Iteration {self.iteration} ({phase}): "
               f"Current Throughput = {tokens_generated/elapsed:.2f} tokens/sec, "
               f"Average Throughput = {total_tokens/total_time:.2f} tokens/sec, "

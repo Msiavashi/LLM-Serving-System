@@ -1,30 +1,9 @@
-import multiprocessing
-import time
 import json
 import redis
 from typing import Optional, Any, Tuple
 from src.config import ConfigManager
 from src.sequence import Sequence, Stage
 from src.queues.storage.base_queue_storage import BaseQueueStorage
-
-def stress_cpu():
-    """A function that performs continuous arithmetic calculations."""
-    x = 0
-    while True:
-        x += 1
-        x *= 2
-        x //= 3
-        x %= 5
-
-def create_processes(num_processes):
-    """Creates and starts multiple processes to stress the CPU."""
-    processes = []
-    for _ in range(num_processes):
-        process = multiprocessing.Process(target=stress_cpu)
-        processes.append(process)
-        process.start()
-
-    return processes
 
 class RedisQueueStorage(BaseQueueStorage):
     _redis_client: Optional[redis.Redis] = None
@@ -80,7 +59,7 @@ class RedisQueueStorage(BaseQueueStorage):
     def _deserialize(self, packed_str):
         packed_item = json.loads(packed_str)
         deserialized_request = packed_item[0]
-        sequence = Sequence(deserialized_request["prompt"], self.tokenizer, self.stage)
+        sequence = Sequence(deserialized_request["prompt"], self.tokenizer, self.stage, priority=deserialized_request["priority"])
         return (sequence, packed_item[1])
 
     def is_empty(self) -> bool:
