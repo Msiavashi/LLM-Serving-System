@@ -22,6 +22,18 @@ Navigate to the `examples` directory and run any of the example scripts. For ins
 python examples/offline_inference_mixtral.py
 ```
 
+### Online Inference (Experimental)
+
+To use the online inference feature, follow these steps:
+
+1. Run Redis.
+2. Run the scheduler service `python -m src.services.scheduler_service`.
+3. Run `python api_server.py`.
+
+You can then send requests as demonstrated in the async example `examples/async_inference_example.py`.
+
+**Note:** This is an experimental feature with limited functionality.
+
 ### Directory Structure
 
 - `examples/`: Example scripts for different MoE models.
