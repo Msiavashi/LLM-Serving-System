@@ -14,8 +14,8 @@ from utils import generate_prompts
 def usage_example():
     np.random.seed(42)  # Set the random seed for reproducibility
     # Create model using factory
-    model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=1)
-    # model_instances, tokenizer = ModelFactory.create_mixtral_model(rank=1)
+    # model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=1)
+    model_instances, tokenizer = ModelFactory.create_mixtral_model(rank=1)
     model = model_instances[0].model
     
     # Create engine using factory - now using standard model engine 

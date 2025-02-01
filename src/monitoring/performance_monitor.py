@@ -34,38 +34,44 @@ class PerformanceMonitor:
         
         # Update print statements to distinguish TTFT and TPOT
         avg_tpot = np.mean(sequence_latencies) if sequence_latencies else 0
-        med_tpot = median(sequence_latencies) if sequence_latencies else 0
         total_tokens = self.prefill_stats.tokens + self.decode_stats.tokens
         total_time = self.prefill_stats.time + self.decode_stats.time
         
+        print("--" * 40)
         if not is_decode:
             print(f"Iteration {self.iteration} ({phase}): "
-                  f"Current Throughput = {tokens_generated/elapsed:.2f} tokens/sec, "
-                  f"Average Throughput = {total_tokens/total_time:.2f} tokens/sec, "
-                  f"Batch size = {tokens_generated}, "
-                  f"TTFT = {avg_tpot:.3f} sec, "
-                  f"Median TTFT = {med_tpot:.3f} sec, "
+                  f"Iteration Throughput = {tokens_generated/elapsed:.2f} tokens/sec, "
+                  f"Cumulative Throughput = {total_tokens/total_time:.2f} tokens/sec, "
+                  f"Output size = {tokens_generated}, "
+                  f"Iteration TTFT = {avg_tpot:.3f} sec, "
                   f"Elapsed time = {elapsed:.2f} sec")
         else:
             print(f"Iteration {self.iteration} ({phase}): "
-                  f"Current Throughput = {tokens_generated/elapsed:.2f} tokens/sec, "
-                  f"Average Throughput = {total_tokens/total_time:.2f} tokens/sec, "
-                  f"Batch size = {tokens_generated}, "
-                  f"TPOT = {avg_tpot:.3f} sec, "
-                  f"Median TPOT = {med_tpot:.3f} sec, "
+                  f"Iteration Throughput = {tokens_generated/elapsed:.2f} tokens/sec, "
+                  f"Cumulative Throughput = {total_tokens/total_time:.2f} tokens/sec, "
+                  f"Output size = {tokens_generated}, "
+                  f"Iteration TPOT = {avg_tpot:.3f} sec, "
                   f"Elapsed time = {elapsed:.2f} sec")
 
         if high_priority_latencies:
             avg_high_priority_latency = np.mean(high_priority_latencies) if high_priority_latencies else 0
             p90_high_priority_latency = np.percentile(high_priority_latencies, 90) if high_priority_latencies else 0
-            p99_high_priority_latency = np.percentile(high_priority_latencies, 99) if high_priority_latencies else 0
-            print(f"  High Priority Avg Latency = {avg_high_priority_latency:.3f} sec, "
-                  f"P90 Latency = {p90_high_priority_latency:.3f} sec, "
-                  f"P99 Latency = {p99_high_priority_latency:.3f} sec")
+            print(f"LS Avg Latency = {avg_high_priority_latency:.3f} sec, "
+                  f"LS P90 Latency = {p90_high_priority_latency:.3f} sec")
+            # Also print overall average latency
+            overal_avg_latency = np.mean(stats.high_priority_latencies) if stats.high_priority_latencies else 0
+            overal_p90_high_priority_latency = np.percentile(stats.high_priority_latencies, 90) if stats.high_priority_latencies else 0 
+            print(f"LS Overall Avg Latency = {overal_avg_latency:.3f} sec, "
+                    f"LS Overall P90 Latency = {overal_p90_high_priority_latency:.3f} sec")
+        # print total time elapsed and total tokens generated
+        print(f"Total time elapsed = {total_time:.2f} sec, "
+                f"Total tokens generated = {stats.tokens}")
+            
 
     def print_final_stats(self):
         avg_ttft = 0
         avg_tpot = 0
+        print("--" * 40)
         if self.prefill_stats.time > 0:
             avg_ttft = np.mean(self.prefill_stats.ttft_values) if self.prefill_stats.ttft_values else 0
             print(f"\nPrefill phase stats:"

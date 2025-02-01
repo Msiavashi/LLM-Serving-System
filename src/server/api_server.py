@@ -6,6 +6,7 @@ import uuid
 from src.queues.fcfs_queue import FCFSQueue
 from src.config import ConfigManager
 from src.queues.storage.redis_storage import RedisQueueStorage
+import time
 
 app = FastAPI()
 
@@ -38,7 +39,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
         prompt = "\n".join([msg.content for msg in messages])
         # Extract priority from the first message if available
         priority = getattr(messages[0], 'priority', 0) if messages else 0
-        
+ 
         # Create request payload
         payload = {
             "id": request_id,

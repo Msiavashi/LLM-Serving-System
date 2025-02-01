@@ -38,6 +38,7 @@ class RedisQueueStorage(BaseQueueStorage):
 
     def enqueue(self, packed_item: Tuple[Any, float]) -> None:
         try:
+            # packed_item is expected to be a tuple (payload, arrival_time)
             self.redis.lpush(self.queue_name, json.dumps(packed_item))
         except (redis.RedisError, ValueError) as e:
             raise RuntimeError(f"Enqueue error: {str(e)}")
@@ -58,9 +59,20 @@ class RedisQueueStorage(BaseQueueStorage):
 
     def _deserialize(self, packed_str):
         packed_item = json.loads(packed_str)
+        # packed_item is a list/tuple where:
+        #   index 0: payload (a dict)
+        #   index 1: arrival_time (a float timestamp)
         deserialized_request = packed_item[0]
-        sequence = Sequence(deserialized_request["prompt"], self.tokenizer, self.stage, priority=deserialized_request["priority"])
-        return (sequence, packed_item[1])
+        arrival_time = packed_item[1]
+        # Pass the arrival_time to the Sequence constructor
+        sequence = Sequence(
+            deserialized_request["prompt"],
+            self.tokenizer,
+            self.stage,
+            priority=deserialized_request["priority"],
+            arrival_time=arrival_time
+        )
+        return (sequence, arrival_time)
 
     def is_empty(self) -> bool:
         return self.redis.llen(self.queue_name) == 0

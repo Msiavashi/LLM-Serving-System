@@ -78,41 +78,34 @@ class PriorityScheduler(BaseScheduler):
         while not (self.ls_decode_queue.is_empty() and self.ls_prefill_queue.is_empty() and
                   self.non_ls_decode_queue.is_empty() and self.non_ls_prefill_queue.is_empty()):
             
-            print("-" * 40)
             batch = None
             
             # First priority: LS decode queue if it has enough sequences
             if self.ls_decode_queue.size() >= self.batch_policy.batch_size:
-                print("Processing: LS decode queue (full batch)")
                 batch = self.batch_policy.get_next_batch(self.ls_decode_queue)
             
             # Second priority: LS prefill if LS decode doesn't have enough sequences
             elif not self.ls_prefill_queue.is_empty():
-                print("Processing: LS prefill queue")
                 batch = self.batch_policy.get_next_batch(self.ls_prefill_queue)
                 if batch.size() > 0:
                     finished = self._process_batch(batch)  # Remove current_time parameter
                     finished_sequences.extend(finished)
                     # Try to process LS decode queue again
                     if not self.ls_decode_queue.is_empty():
-                        print("Processing: LS decode queue (after prefill)")
                         batch = self.batch_policy.get_next_batch(self.ls_decode_queue)
                     else:
                         continue
             
             # Third priority: Process remaining LS decode sequences even if less than batch_size
             elif not self.ls_decode_queue.is_empty():
-                print("Processing: LS decode queue (partial batch)")
                 batch = self.batch_policy.get_next_batch(self.ls_decode_queue)
             
             # Fourth priority: Non-LS decode queue
             elif not self.non_ls_decode_queue.is_empty():
-                print("Processing: Non-LS decode queue")
                 batch = self.batch_policy.get_next_batch(self.non_ls_decode_queue)
             
             # Fifth priority: Non-LS prefill queue
             elif not self.non_ls_prefill_queue.is_empty():
-                print("Processing: Non-LS prefill queue")
                 batch = self.batch_policy.get_next_batch(self.non_ls_prefill_queue)
             
             if batch and batch.size() > 0:
@@ -121,5 +114,5 @@ class PriorityScheduler(BaseScheduler):
             else:
                 break
         
-        self.monitor.print_final_stats()
-        return finished_sequences
+        # self.monitor.print_final_stats()
+        # return finished_sequences

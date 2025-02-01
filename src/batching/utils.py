@@ -7,7 +7,7 @@ import torch.nn.functional as F
 class SequenceProcessor:
     @staticmethod
     def pad_sequence(sequence, max_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        # max_length = 16
+        max_length = 16
         input_ids = sequence.input_ids[:max_length]
         attention_mask = sequence.attention_mask[:max_length]
         padding_length = max_length - input_ids.size(0)

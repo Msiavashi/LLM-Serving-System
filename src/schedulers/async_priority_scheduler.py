@@ -48,6 +48,9 @@ class AsyncPriorityScheduler(BaseScheduler):
                 seq.finish_time = current_time
                 finished_sequences.append(seq)
                 del seq.kv_cache
+                print("--" * 40)
+                print(f"\nSequence ID: {seq.sequence_id}, Turnaround Time: {seq.finish_time - seq.arrival_time}, Priority: {seq.priority}\n")
+                print("--" * 40)
             else:
                 if seq.priority == 1:
                     self.ls_decode_queue.enqueue(seq)

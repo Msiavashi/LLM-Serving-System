@@ -61,6 +61,9 @@ class AsyncFCFSScheduler(BaseScheduler):
                     seq.finish_time = current_time
                     finished_sequences.append(seq)
                     del seq.kv_cache
+                    print("--" * 40)
+                    print(f"\nSequence ID: {seq.sequence_id}, Turnaround Time: {seq.finish_time - seq.arrival_time}, Priority: {seq.priority}\n")
+                    print("--" * 40)
                 else:
                     self.decode_queue.enqueue(seq)
             
@@ -73,6 +76,6 @@ class AsyncFCFSScheduler(BaseScheduler):
             )
             
             # Don't print stats continuously
-            if len(finished_sequences) % 100 == 0:
-                self.monitor.print_final_stats()
+            # if len(finished_sequences) % 100 == 0:
+            #     self.monitor.print_final_stats()
 
