@@ -1,6 +1,5 @@
 from typing import List
 import torch
-import time
 from src.queues.fcfs_queue import FCFSQueue
 
 class SparseMoeBlockWithQueuesMixin:

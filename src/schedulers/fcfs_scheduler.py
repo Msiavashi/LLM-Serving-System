@@ -62,7 +62,7 @@ class FCFSScheduler(BaseScheduler):
             
             self.monitor.record_batch(
                 is_decode=is_decode,
-                tokens_generated=len(output_batch.sequences),
+                sequences=output_batch.sequences,
                 elapsed=elapsed,
                 sequence_latencies=current_batch_latencies,
                 high_priority_latencies=high_priority_latencies

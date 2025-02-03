@@ -59,7 +59,7 @@ class AsyncPriorityScheduler(BaseScheduler):
         
         self.monitor.record_batch(
             is_decode=is_decode,
-            tokens_generated=len(output_batch.sequences),
+            sequences=output_batch.sequences,
             elapsed=elapsed,
             sequence_latencies=current_batch_latencies,
             high_priority_latencies=high_priority_latencies
@@ -69,6 +69,15 @@ class AsyncPriorityScheduler(BaseScheduler):
 
     async def run_scheduler(self):
         finished_sequences = []
+        
+        async def print_stats_periodically():
+            while True:
+                await asyncio.sleep(15)
+                print("\n" + "="*80)
+                self.monitor.print_final_stats()
+                print("="*80 + "\n")
+        
+        asyncio.create_task(print_stats_periodically())
         
         while True:  # Run forever
             if (self.ls_decode_queue.is_empty() and self.ls_prefill_queue.is_empty() and
@@ -82,9 +91,16 @@ class AsyncPriorityScheduler(BaseScheduler):
             if self.ls_decode_queue.size() >= self.batch_policy.batch_size:
                 batch = self.batch_policy.get_next_batch(self.ls_decode_queue)
             
-            # Second priority: LS prefill if LS decode doesn't have enough sequences
+            # LS prefill branch with added logic to merge non-LS prefill sequences if needed.
             elif not self.ls_prefill_queue.is_empty():
                 batch = self.batch_policy.get_next_batch(self.ls_prefill_queue)
+                if batch.size() < self.batch_policy.batch_size and not self.non_ls_prefill_queue.is_empty():
+                    missing = self.batch_policy.batch_size - batch.size()
+                    extra_sequences = []
+                    while missing > 0 and not self.non_ls_prefill_queue.is_empty():
+                        extra_sequences.append(self.non_ls_prefill_queue.dequeue())
+                        missing -= 1
+                    batch.add_sequence(extra_sequences)
                 if batch.size() > 0:
                     finished = await self._process_batch(batch)
                     finished_sequences.extend(finished)
@@ -97,6 +113,13 @@ class AsyncPriorityScheduler(BaseScheduler):
             # Third priority: Process remaining LS decode sequences even if less than batch_size
             elif not self.ls_decode_queue.is_empty():
                 batch = self.batch_policy.get_next_batch(self.ls_decode_queue)
+                if batch.size() < self.batch_policy.batch_size and self.ls_prefill_queue.is_empty() and not self.non_ls_decode_queue.is_empty():
+                    missing = self.batch_policy.batch_size - batch.size()
+                    extra_sequences = []
+                    while missing > 0 and not self.non_ls_decode_queue.is_empty():
+                        extra_sequences.append(self.non_ls_decode_queue.dequeue())
+                        missing -= 1
+                    batch.add_sequence(extra_sequences)
             
             # Fourth priority: Non-LS decode queue
             elif not self.non_ls_decode_queue.is_empty():

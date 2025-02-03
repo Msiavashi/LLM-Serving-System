@@ -43,7 +43,6 @@ class PriorityScheduler(BaseScheduler):
         current_batch_latencies = []
         high_priority_latencies = []
          
-      
         for seq in output_batch.sequences:
             current_latency = current_time - seq.previous_token_time
             current_batch_latencies.append(current_latency)
@@ -64,7 +63,7 @@ class PriorityScheduler(BaseScheduler):
         
         self.monitor.record_batch(
             is_decode=is_decode,
-            tokens_generated=len(output_batch.sequences),
+            sequences=output_batch.sequences,
             elapsed=elapsed,
             sequence_latencies=current_batch_latencies,
             high_priority_latencies=high_priority_latencies
@@ -80,39 +79,48 @@ class PriorityScheduler(BaseScheduler):
             
             batch = None
             
-            # First priority: LS decode queue if it has enough sequences
             if self.ls_decode_queue.size() >= self.batch_policy.batch_size:
                 batch = self.batch_policy.get_next_batch(self.ls_decode_queue)
             
-            # Second priority: LS prefill if LS decode doesn't have enough sequences
+            # LS prefill branch with added merge from non-LS prefill.
             elif not self.ls_prefill_queue.is_empty():
                 batch = self.batch_policy.get_next_batch(self.ls_prefill_queue)
+                if batch.size() < self.batch_policy.batch_size and not self.non_ls_prefill_queue.is_empty():
+                    missing = self.batch_policy.batch_size - batch.size()
+                    extra_sequences = []
+                    while missing > 0 and not self.non_ls_prefill_queue.is_empty():
+                        extra_sequences.append(self.non_ls_prefill_queue.dequeue())
+                        missing -= 1
+                    batch.add_sequence(extra_sequences)
                 if batch.size() > 0:
-                    finished = self._process_batch(batch)  # Remove current_time parameter
+                    finished = self._process_batch(batch)
                     finished_sequences.extend(finished)
-                    # Try to process LS decode queue again
                     if not self.ls_decode_queue.is_empty():
                         batch = self.batch_policy.get_next_batch(self.ls_decode_queue)
                     else:
                         continue
             
-            # Third priority: Process remaining LS decode sequences even if less than batch_size
+            # LS decode branch when not enough sequences: attempt to fill batch from non‑LS decode.
             elif not self.ls_decode_queue.is_empty():
                 batch = self.batch_policy.get_next_batch(self.ls_decode_queue)
+                if batch.size() < self.batch_policy.batch_size and self.ls_prefill_queue.is_empty() and not self.non_ls_decode_queue.is_empty():
+                    missing = self.batch_policy.batch_size - batch.size()
+                    extra_sequences = []
+                    while missing > 0 and not self.non_ls_decode_queue.is_empty():
+                        extra_sequences.append(self.non_ls_decode_queue.dequeue())
+                        missing -= 1
+                    batch.add_sequence(extra_sequences)
             
-            # Fourth priority: Non-LS decode queue
             elif not self.non_ls_decode_queue.is_empty():
                 batch = self.batch_policy.get_next_batch(self.non_ls_decode_queue)
-            
-            # Fifth priority: Non-LS prefill queue
             elif not self.non_ls_prefill_queue.is_empty():
                 batch = self.batch_policy.get_next_batch(self.non_ls_prefill_queue)
             
             if batch and batch.size() > 0:
-                finished = self._process_batch(batch)  # Remove current_time parameter
+                finished = self._process_batch(batch)
                 finished_sequences.extend(finished)
             else:
                 break
         
-        # self.monitor.print_final_stats()
-        # return finished_sequences
+        self.monitor.print_final_stats()
+        return finished_sequences

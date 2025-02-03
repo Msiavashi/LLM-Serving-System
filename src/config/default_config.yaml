@@ -20,7 +20,7 @@ server:
 
 scheduler:
   type: async_priority
-  batch_size: 16
+  batch_size: 32
 
 engine:
   type: async_model

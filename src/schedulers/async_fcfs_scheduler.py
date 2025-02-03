@@ -25,6 +25,15 @@ class AsyncFCFSScheduler(BaseScheduler):
     async def run_scheduler(self):
         finished_sequences = []
         
+        async def print_stats_periodically():
+            while True:
+                await asyncio.sleep(15)
+                print("\n" + "="*80)
+                self.monitor.print_final_stats()
+                print("="*80 + "\n")
+        
+        asyncio.create_task(print_stats_periodically())
+        
         while True:  # Run forever
             if self.decode_queue.is_empty() and self.prefill_queue.is_empty():
                 await asyncio.sleep(0.001)
@@ -69,7 +78,7 @@ class AsyncFCFSScheduler(BaseScheduler):
             
             self.monitor.record_batch(
                 is_decode=is_decode,
-                tokens_generated=len(output_batch.sequences),
+                sequences=output_batch.sequences,
                 elapsed=elapsed,
                 sequence_latencies=current_batch_latencies,
                 high_priority_latencies=high_priority_latencies

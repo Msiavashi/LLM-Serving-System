@@ -23,7 +23,7 @@ class SequenceBase:
         self.kv_cache = kv_cache if kv_cache is not None else DynamicCache()
         self.stage: Stage = Stage.PREFILL
         np.random.seed(42)  # Set the seed for reproducibility
-        self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=np.random.randint(1, 100))
+        self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=np.random.randint(1, 50))
 
     def update(self, next_token_ids, new_kv_cache):
         next_token_ids = next_token_ids.to(self.device)
@@ -35,6 +35,12 @@ class SequenceBase:
 
     def get_generated_text(self, tokenizer):
         return tokenizer.decode(self.generated_tokens, skip_special_tokens=True)
+
+    def get_input_prompt_length(self):
+        return self.input_ids.size(0)
+
+    def get_total_sequence_length(self):
+        return self.get_input_prompt_length() + self.generated_tokens.size(0)
 
     def __str__(self):
         return (
