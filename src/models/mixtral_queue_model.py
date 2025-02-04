@@ -136,6 +136,21 @@ class MixtralModel(MixtralModel):
 
     def set_running_batch(self, batch):
         self.running_batch = batch
+
+    def has_queued_tokens(self):
+        # Returns the total number of queued tokens from all MoE blocks in the decoder layers.
+        total = 0
+        for layer in self.layers:
+            if hasattr(layer, 'block_sparse_moe'):
+                total += layer.block_sparse_moe.count_queued_tokens()
+        return total
+
+    def has_queued_items(self):
+        # Returns True if any MoE block in the decoder layers has queued items.
+        for layer in self.layers:
+            if hasattr(layer, 'block_sparse_moe') and layer.block_sparse_moe.has_queued_items():
+                return True
+        return False
     
     def forward(
             self,
