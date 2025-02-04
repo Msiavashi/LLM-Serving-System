@@ -15,7 +15,7 @@ def usage_example():
     np.random.seed(42)  # Set the random seed for reproducibility
     # Create model using factory
     # model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=1)
-    model_instances, tokenizer = ModelFactory.create_mixtral_model(rank=1)
+    model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=1)
     model = model_instances[0].model
     
     # Create engine using factory - now using standard model engine 
@@ -29,15 +29,18 @@ def usage_example():
         batch_size=32
     )
     
+    # Set the scheduler into the model through the new setter method.
+    # model.set_scheduler(scheduler)
+    
     prompts = generate_prompts(256, 16, tokenizer)
     
-    # Calculate number of latency-sensitive requests (2%)
-    num_latency_sensitive = int(len(prompts) * 0.3)  # 2% of total prompts
+    # Calculate number of latency-sensitive requests (20%)
+    num_latency_sensitive = int(len(prompts) * 0.2)
     
     # Generate exponential distribution scores
     exp_scores = np.random.exponential(scale=1.0, size=len(prompts))
     
-    # Sort indices by exponential scores and select top 2% as high priority
+    # Sort indices by exponential scores and select top 20% as high priority
     high_priority_indices = np.argsort(exp_scores)[-num_latency_sensitive:]
     
     for i, prompt in enumerate(prompts):

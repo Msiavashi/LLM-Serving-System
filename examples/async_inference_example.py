@@ -40,15 +40,15 @@ async def main():
     )
 
     # Read dataset
-    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 1024)
+    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 2048)
     
     # Generate Poisson arrival times (10 requests per second)
-    arrival_rate = 5  # requests per second
+    arrival_rate = 11  # requests per second
     num_requests = len(prompts)
     intervals = np.random.exponential(1.0/arrival_rate, num_requests)
     arrival_times = np.cumsum(intervals)
     
-    # Calculate number of latency-sensitive requests (25%)
+    # Calculate number of latency-sensitive requests (20%)
     num_latency_sensitive = int(len(prompts) * 0.2)
     
     # Generate exponential distribution scores

@@ -6,6 +6,10 @@ class SparseMoeBlockWithQueuesMixin:
     def __init__(self, num_experts, *args, **kwargs):
         self.queues = [FCFSQueue() for _ in range(num_experts)]
         self.num_experts = num_experts  # Ensure num_experts is stored
+        self.scheduler = None
+        
+    def set_scheduler(self, scheduler):
+        self.scheduler = scheduler
 
     def _get_expert_inputs(self, hidden_states, expert_mask, expert_idx):
         idx, top_x = torch.where(expert_mask[expert_idx])
@@ -34,7 +38,7 @@ class SparseMoeBlockWithQueuesMixin:
         return sequences_to_process
 
 
-    def process_decode_new(self, hidden_states, expert_mask, selected_expert_indices, running_batch, hidden_dim):
+    def process_decode(self, hidden_states, expert_mask, selected_expert_indices, running_batch, hidden_dim):
         # Check if any sequence in the running_batch is high priority
         global_high_priority = any(seq.priority == 1 for seq in running_batch.sequences)
         
@@ -42,7 +46,7 @@ class SparseMoeBlockWithQueuesMixin:
         final_states = []
         final_sequences = []
         
-        if global_high_priority:
+        if global_high_priority or not self.scheduler.has_high_priority_request():
             # Iterate over all experts if any high priority sequence exists
             for expert_idx in range(self.num_experts):
                 top_x, current_state = self._get_expert_inputs(hidden_states, expert_mask, expert_idx)
@@ -84,4 +88,3 @@ class SparseMoeBlockWithQueuesMixin:
     def has_queued_items(self):
         # Returns True if any of the expert queues is not empty.
         return any(not queue.is_empty() for queue in self.queues)
-    

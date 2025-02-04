@@ -16,6 +16,7 @@ def usage_example():
     
     # Create model using factory - without specifying rank for single GPU usage
     model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=1)
+    # model_instances, tokenizer = ModelFactory.create_mixtral_model(rank=1)
     model = model_instances[0].model
     
     # Create engine using factory
@@ -23,13 +24,13 @@ def usage_example():
     
     # Create scheduler using factory
     scheduler = SchedulerFactory.create_scheduler(
-        name="fcfs",
+        name="priority",
         engine=engine,
         tokenizer=tokenizer,
         batch_size=32
     )
     
-    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 1024)
+    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 256)
     
     # Calculate and print lengths
     prompt_lengths = [len(tokenizer.encode(prompt)) for prompt in prompts]
@@ -44,7 +45,7 @@ def usage_example():
     print(f"Q1: {q1}, Q2: {q2}, Q3: {q3}\n")
     
     # Calculate number of latency-sensitive requests (2%)
-    num_latency_sensitive = int(len(prompts) * 0.05)  # 2% of total prompts
+    num_latency_sensitive = int(len(prompts) * 0.2)  # 2% of total prompts
     
     # Generate exponential distribution scores
     exp_scores = np.random.exponential(scale=1.0, size=len(prompts))

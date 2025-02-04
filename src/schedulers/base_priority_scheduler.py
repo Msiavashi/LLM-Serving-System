@@ -102,3 +102,7 @@ class BasePriorityScheduler(BaseScheduler):
             batch = self.batch_policy.get_next_batch(self.non_ls_prefill_queue)
 
         return batch
+
+    def has_high_priority_request(self):
+        # Check if any latency-sensitive high-priority request is in the queues
+        return not self.ls_prefill_queue.is_empty() or not self.ls_decode_queue.is_empty()

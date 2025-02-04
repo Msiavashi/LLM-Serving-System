@@ -15,7 +15,7 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock, SparseMoeBlockWithQueuesMix
     def __init__(self, config):
         MixtralSparseMoeBlock.__init__(self, config)
         SparseMoeBlockWithQueuesMixin.__init__(self, self.num_experts)
-    
+ 
     def forward(self, hidden_states: torch.Tensor, running_batch) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         
@@ -294,7 +294,6 @@ class MixtralModel(MixtralModel):
             )
 
 class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
-    
     def __init__(self, config):
         super().__init__(config)
         self.model = MixtralModel(config)
@@ -316,3 +315,7 @@ class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
         for i in range(config.num_hidden_layers):
             self.model.layers[i] = MyMixtralDecoderLayer(config, i)
             self.model.layers[i].block_sparse_moe = MyMixtralSparseMoeBlock(config)
+
+    def set_scheduler(self, scheduler):
+        for layer in self.model.layers:
+            layer.block_sparse_moe.set_scheduler(scheduler)

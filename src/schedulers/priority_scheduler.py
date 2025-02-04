@@ -71,6 +71,7 @@ class PriorityScheduler(BasePriorityScheduler):
         
         return finished_sequences
 
+    
     def run_scheduler(self):
         finished_sequences = []
 
