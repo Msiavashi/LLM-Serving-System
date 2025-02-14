@@ -22,5 +22,10 @@ class ModelInputMixin:
         
         past_key_values = DynamicCache(past_key_values_list) if past_key_values_list else None
         
+        # # return empty tensors
+        # input_ids = torch.zeros(1, 1, dtype=input_ids.dtype, device=input_ids.device)
+        # attention_mask = torch.zeros(1, 1, dtype=attention_mask.dtype, device=attention_mask.device)
+        # past_key_values = DynamicCache([])
+        # self.running_batch = Batch([])
+        
         return input_ids, attention_mask, past_key_values, self.running_batch
-

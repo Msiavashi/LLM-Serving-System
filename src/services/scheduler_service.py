@@ -32,6 +32,12 @@ class SchedulerService:
             batch_size=config.get('scheduler.batch_size')
         )
         print("SchedulerService initialized.")
+        
+        # Set the scheduler into the model through the new setter method.
+        if hasattr(model, 'set_scheduler'):
+            model.set_scheduler(self.scheduler)
+
+
 
     async def run_scheduler(self):
         print("Running scheduler...")

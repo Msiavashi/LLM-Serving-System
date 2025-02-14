@@ -17,6 +17,7 @@ class ModelFactory:
         """Common initialization logic for Mixtral models"""
         config = AutoConfig.from_pretrained(checkpoint)
         tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+        config.use_flash_attention_5 = True
         
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token

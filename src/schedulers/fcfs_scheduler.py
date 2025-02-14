@@ -16,8 +16,8 @@ class FCFSScheduler(BaseScheduler):
         self.batch_policy = SizeBasedBatchPolicy(batch_size)
         self.monitor = PerformanceMonitor()
 
-    def add_sequence_to_queue(self, prompt, stage=Stage.PREFILL):
-        seq = Sequence(prompt, self.tokenizer, stage)
+    def add_sequence_to_queue(self, prompt, stage=Stage.PREFILL, priority=0):
+        seq = Sequence(prompt, self.tokenizer, stage, priority=priority)
         if stage == Stage.PREFILL:
             self.prefill_queue.enqueue(seq)
         elif stage == Stage.DECODE:
@@ -43,10 +43,13 @@ class FCFSScheduler(BaseScheduler):
             
             current_time = time.time()
             current_batch_latencies = []
+            high_priority_latencies = []
             
             for seq in output_batch.sequences:
                 current_latency = current_time - seq.previous_token_time
                 current_batch_latencies.append(current_latency)
+                if seq.priority == 1:
+                    high_priority_latencies.append(current_latency)
                 seq.previous_token_time = current_time
                 seq.sampling_metadata.current_token_count += 1
                 
@@ -59,9 +62,10 @@ class FCFSScheduler(BaseScheduler):
             
             self.monitor.record_batch(
                 is_decode=is_decode,
-                tokens_generated=len(output_batch.sequences),
+                sequences=output_batch.sequences,
                 elapsed=elapsed,
-                sequence_latencies=current_batch_latencies
+                sequence_latencies=current_batch_latencies,
+                high_priority_latencies=high_priority_latencies
             )
             
             # log_queue_sizes(self.engine)

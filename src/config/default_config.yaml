@@ -19,7 +19,7 @@ server:
   port: 8000
 
 scheduler:
-  type: async_fcfs
+  type: async_priority
   batch_size: 32
 
 engine:
