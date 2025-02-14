@@ -1,11 +1,9 @@
 import time
 
-from src.sequence import Sequence, Stage
 from src.queues import FCFSQueue
 from src.batching.policies import SizeBasedBatchPolicy
 from src.monitoring.performance_monitor import PerformanceMonitor
 from .base_priority_scheduler import BasePriorityScheduler
-from .utils import log_queue_sizes
 
 class PriorityScheduler(BasePriorityScheduler):
     def __init__(self, engine, tokenizer, batch_size=32):
@@ -17,19 +15,6 @@ class PriorityScheduler(BasePriorityScheduler):
         self.ls_decode_queue = FCFSQueue()
         self.batch_policy = SizeBasedBatchPolicy(batch_size)
         self.monitor = PerformanceMonitor()
-
-    def add_sequence_to_queue(self, prompt, stage=Stage.PREFILL, priority=0):
-        seq = Sequence(prompt, self.tokenizer, stage, priority=priority)
-        if stage == Stage.PREFILL:
-            if priority == 1:
-                self.ls_prefill_queue.enqueue(seq)
-            else:
-                self.non_ls_prefill_queue.enqueue(seq)
-        elif stage == Stage.DECODE:
-            if priority == 1:
-                self.ls_decode_queue.enqueue(seq)
-            else:
-                self.non_ls_decode_queue.enqueue(seq)
 
     def _process_batch(self, batch):
         is_decode = batch.is_decode()

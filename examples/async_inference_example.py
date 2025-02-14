@@ -28,6 +28,8 @@ async def process_prompt(client, prompt, model_id, priority=0):
         print(f"Error processing prompt: {str(e)}")
 
 async def main():
+    # seed the random
+    np.random.seed(42)
     # Get configuration
     config = ConfigManager()
     api_base = f"http://{config.get('server.host', 'localhost')}:{config.get('server.port', 8000)}/v1"
@@ -40,10 +42,10 @@ async def main():
     )
 
     # Read dataset
-    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 2048)
+    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 64)
     
-    # Generate Poisson arrival times (10 requests per second)
-    arrival_rate = 11  # requests per second
+    # Generate Poisson arrival times (x requests per second)
+    arrival_rate = 0.25 # requests per second
     num_requests = len(prompts)
     intervals = np.random.exponential(1.0/arrival_rate, num_requests)
     arrival_times = np.cumsum(intervals)

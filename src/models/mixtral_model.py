@@ -1,8 +1,7 @@
 import torch
 from transformers import MixtralForCausalLM
 from src.batching.batch import Batch
-# from src.cache.dynamic_cache import DynamicCacheEx as DynamicCache
-from src.cache.unified_dynamic_cache import UnifiedDynamicCache as DynamicCache
+from src.cache.dynamic_cache import DynamicCacheEx as DynamicCache
 
 class MyCustomMixtral(MixtralForCausalLM):
     def forward(self, batch: Batch, **kwargs):
@@ -25,8 +24,7 @@ class MyCustomMixtral(MixtralForCausalLM):
         attention_mask = torch.cat(attention_mask_list, dim=0)
         
         if past_key_values_list:
-            # past_key_values = DynamicCache.merge_kv_caches(past_key_values_list)
-            past_key_values = DynamicCache(past_key_values_list)
+            past_key_values = DynamicCache.merge_kv_caches(past_key_values_list)
         else:
             past_key_values = DynamicCache()
         
@@ -36,8 +34,7 @@ class MyCustomMixtral(MixtralForCausalLM):
         logits = outputs.logits
         kv_cache = outputs.past_key_values
         # Split kv_cache and create a new batch
-        # split_kv_cache = kv_cache.split_kv_cache(num_sequences)
-        split_kv_cache = kv_cache.split_kv_cache()
+        split_kv_cache = kv_cache.split_kv_cache(num_sequences)
         new_batch = Batch(self.running_sequences)
         new_batch.update_sequences(logits, split_kv_cache)
         

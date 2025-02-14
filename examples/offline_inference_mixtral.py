@@ -30,7 +30,7 @@ def usage_example():
     )
     
     # Set the scheduler into the model through the new setter method.
-    # model.set_scheduler(scheduler)
+    model.set_scheduler(scheduler)
     
     prompts = generate_prompts(256, 16, tokenizer)
     

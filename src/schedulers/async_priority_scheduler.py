@@ -1,10 +1,8 @@
 import time
 import asyncio
 
-from src.sequence import Sequence, Stage
+from src.sequence import Stage
 from src.queues.fcfs_queue import FCFSQueue
-from src.batching.policies import SizeBasedBatchPolicy
-from src.monitoring.performance_monitor import PerformanceMonitor
 from .base_priority_scheduler import BasePriorityScheduler
 from src.queues.storage.redis_storage import RedisQueueStorage
 
