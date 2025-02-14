@@ -3,15 +3,17 @@ from pydantic import BaseModel
 from typing import List, Literal, Optional
 import uvicorn
 import uuid
+import time  # Import time to record the timestamp
 from src.queues.fcfs_queue import FCFSQueue
 from src.config import ConfigManager
 from src.queues.storage.redis_storage import RedisQueueStorage
-import time
+from src.sequence import Stage
 
 app = FastAPI()
 
-# Initialize Redis queue
-queue = FCFSQueue(RedisQueueStorage("prefill_queue", None, None))
+# Initialize Redis queues for different priorities
+ls_queue = FCFSQueue(RedisQueueStorage("ls_prefill_queue", None, Stage.PREFILL))
+non_ls_queue = FCFSQueue(RedisQueueStorage("non_ls_prefill_queue", None, Stage.PREFILL))
 
 class RequestData(BaseModel):
     prompt: str
@@ -39,7 +41,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
         prompt = "\n".join([msg.content for msg in messages])
         # Extract priority from the first message if available
         priority = getattr(messages[0], 'priority', 0) if messages else 0
- 
+
         # Create request payload
         payload = {
             "id": request_id,
@@ -48,8 +50,12 @@ async def create_chat_completion(request: ChatCompletionRequest):
             "temperature": request.temperature,
             "priority": priority
         }
-        # Send to Redis queue
-        queue.enqueue(payload)
+
+        # Enqueue the payload along with the arrival_time
+        if priority == 1:
+            ls_queue.enqueue(payload)
+        else:
+            non_ls_queue.enqueue(payload)
         
         return {
             "id": request_id,
@@ -70,7 +76,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
 @app.get("/v1/queue/status")
 async def get_queue_status():
     return {
-        "queue_size": queue.size()
+        "high_priority_queue_size": ls_queue.size(),
+        "normal_priority_queue_size": non_ls_queue.size()
     }
 
 if __name__ == "__main__":

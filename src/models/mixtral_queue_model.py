@@ -8,7 +8,6 @@ from src.mixins.model_output_mixin import ModelOutputMixin
 from src.mixins.sparse_moe_block_with_queue_mixin import SparseMoeBlockWithQueuesMixin
 from src.batching.batch import Batch
 from typing import Optional, Tuple
-from transformers.cache_utils import Cache
 from src.cache.unified_dynamic_cache import UnifiedDynamicCache as DynamicCache
 
 
@@ -16,7 +15,7 @@ class MyMixtralSparseMoeBlock(MixtralSparseMoeBlock, SparseMoeBlockWithQueuesMix
     def __init__(self, config):
         MixtralSparseMoeBlock.__init__(self, config)
         SparseMoeBlockWithQueuesMixin.__init__(self, self.num_experts)
-    
+ 
     def forward(self, hidden_states: torch.Tensor, running_batch) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         
@@ -64,24 +63,31 @@ class MyMixtralDecoderLayer(MixtralDecoderLayer):
         output_router_logits: Optional[bool] = False,
         use_cache: Optional[bool] = False,
         cache_position: Optional[torch.LongTensor] = None,
+        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
         running_batch: Batch = None,
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        # print(f"Layer index: {self.layer_idx}")
         residual = hidden_states
 
         hidden_states = self.input_layernorm(hidden_states)
 
+        # Initialize present_key_value to None
+        present_key_value = None
+
         if not running_batch.is_empty():
-            hidden_states, self_attn_weights, present_key_value = self.self_attn(
+            # Self Attention
+            hidden_states, self_attn_weights = self.self_attn(
                 hidden_states=hidden_states,
+                position_embeddings=position_embeddings,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
                 past_key_value=past_key_value,
                 output_attentions=output_attentions,
                 use_cache=use_cache,
                 cache_position=cache_position,
+                **kwargs,
             )
+            present_key_value = past_key_value
         else:
             present_key_value = None
 
@@ -126,9 +132,25 @@ class MixtralModel(MixtralModel):
     def __init__(self, config):
         super().__init__(config)
         self.running_batch: Batch = None
-        
+        self.dynamic_cache = None  # Add this line to store the DynamicCache instance
+
     def set_running_batch(self, batch):
         self.running_batch = batch
+
+    def has_queued_tokens(self):
+        # Returns the total number of queued tokens from all MoE blocks in the decoder layers.
+        total = 0
+        for layer in self.layers:
+            if hasattr(layer, 'block_sparse_moe'):
+                total += layer.block_sparse_moe.count_queued_tokens()
+        return total
+
+    def has_queued_items(self):
+        # Returns True if any MoE block in the decoder layers has queued items.
+        for layer in self.layers:
+            if hasattr(layer, 'block_sparse_moe') and layer.block_sparse_moe.has_queued_items():
+                return True
+        return False
     
     def forward(
             self,
@@ -165,19 +187,10 @@ class MixtralModel(MixtralModel):
                     )
                     use_cache = False
 
-            # kept for BC (non `Cache` `past_key_values` inputs)
-            return_legacy_cache = False
-            if use_cache and not isinstance(past_key_values, Cache):
-                return_legacy_cache = True
-                if past_key_values is None:
-                    past_key_values = DynamicCache()
-                else:
-                    past_key_values = DynamicCache.from_legacy_cache(past_key_values)
-                    logger.warning_once(
-                        "We detected that you are passing `past_key_values` as a tuple of tuples. This is deprecated and "
-                        "will be removed in v4.47. Please convert your cache or use an appropriate `Cache` class "
-                        "(https://huggingface.co/docs/transformers/kv_cache#legacy-cache-format)"
-                    )
+            if use_cache and past_key_values is None:
+                if self.dynamic_cache is None:
+                    self.dynamic_cache = DynamicCache()
+                past_key_values = self.dynamic_cache
 
             if inputs_embeds is None:
                 inputs_embeds = self.embed_tokens(input_ids)
@@ -189,11 +202,15 @@ class MixtralModel(MixtralModel):
                 )
             if position_ids is None:
                 position_ids = cache_position.unsqueeze(0)
-            
+
             causal_mask = self._update_causal_mask(
                 attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
             )
+
             hidden_states = inputs_embeds
+            
+            position_embeddings = self.rotary_emb(hidden_states, position_ids)
+
 
             # decoder layers
             all_hidden_states = () if output_hidden_states else None
@@ -230,6 +247,7 @@ class MixtralModel(MixtralModel):
                         output_router_logits=output_router_logits,
                         use_cache=use_cache,
                         cache_position=cache_position,
+                        position_embeddings=position_embeddings,
                         running_batch=self.running_batch,
                     )
                     
@@ -254,8 +272,12 @@ class MixtralModel(MixtralModel):
                 
             next_cache = DynamicCache([seq.kv_cache for seq in self.running_batch.sequences]) if use_cache else None
             
-            if return_legacy_cache:
-                next_cache = next_cache.to_legacy_cache()
+            # Update the dynamic_cache with the new cache
+            if use_cache:
+                self.dynamic_cache = next_cache
+            
+            # if return_legacy_cache:
+            #     next_cache = next_cache.to_legacy_cache()
 
             if not return_dict:
                 return tuple(
@@ -272,7 +294,6 @@ class MixtralModel(MixtralModel):
             )
 
 class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
-    
     def __init__(self, config):
         super().__init__(config)
         self.model = MixtralModel(config)
@@ -294,3 +315,7 @@ class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
         for i in range(config.num_hidden_layers):
             self.model.layers[i] = MyMixtralDecoderLayer(config, i)
             self.model.layers[i].block_sparse_moe = MyMixtralSparseMoeBlock(config)
+
+    def set_scheduler(self, scheduler):
+        for layer in self.model.layers:
+            layer.block_sparse_moe.set_scheduler(scheduler)

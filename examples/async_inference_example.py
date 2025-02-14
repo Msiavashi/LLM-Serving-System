@@ -8,12 +8,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.config import ConfigManager
 from utils import read_shared_gpt_dataset
 
-async def process_prompt(client, prompt, model_id):
+async def process_prompt(client, prompt, model_id, priority=0):
     try:
         chat_completion = client.chat.completions.create(
             messages=[{
                 "role": "user",
-                "content": prompt
+                "content": prompt,
+                "priority": priority  # Move priority to message level
             }],
             model=model_id,
             max_tokens=50,
@@ -27,6 +28,8 @@ async def process_prompt(client, prompt, model_id):
         print(f"Error processing prompt: {str(e)}")
 
 async def main():
+    # seed the random
+    np.random.seed(42)
     # Get configuration
     config = ConfigManager()
     api_base = f"http://{config.get('server.host', 'localhost')}:{config.get('server.port', 8000)}/v1"
@@ -39,23 +42,34 @@ async def main():
     )
 
     # Read dataset
-    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 1024)
+    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 64)
     
-    # Generate Poisson arrival times (10 requests per second)
-    arrival_rate = 10.0  # requests per second
+    # Generate Poisson arrival times (x requests per second)
+    arrival_rate = 0.25 # requests per second
     num_requests = len(prompts)
     intervals = np.random.exponential(1.0/arrival_rate, num_requests)
     arrival_times = np.cumsum(intervals)
+    
+    # Calculate number of latency-sensitive requests (20%)
+    num_latency_sensitive = int(len(prompts) * 0.2)
+    
+    # Generate exponential distribution scores
+    exp_scores = np.random.exponential(scale=1.0, size=len(prompts))
+    
+    # Sort indices by exponential scores and select top 30% as high priority
+    high_priority_indices = np.argsort(exp_scores)[-num_latency_sensitive:]
     
     # Process requests with Poisson timing
     start_time = time()
     tasks = []
     
-    for prompt, arrival_time in zip(prompts, arrival_times):
+    for i, (prompt, arrival_time) in enumerate(zip(prompts, arrival_times)):
         # Wait until the next arrival time
         await asyncio.sleep(max(0, arrival_time - (time() - start_time)))
+        # Set priority based on index
+        priority = 1 if i in high_priority_indices else 0
         # Create and start task
-        task = asyncio.create_task(process_prompt(client, prompt, model_id))
+        task = asyncio.create_task(process_prompt(client, prompt, model_id, priority))
         tasks.append(task)
     
     # Wait for all tasks to complete

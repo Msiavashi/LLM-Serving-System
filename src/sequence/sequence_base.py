@@ -3,15 +3,17 @@ import torch
 from src.cache.dynamic_cache import DynamicCacheEx as DynamicCache
 from src.samplers.sampling_metadata import SamplingMetadata
 from .stage import Stage
+import numpy as np
 
 class SequenceBase:
     sequence_id = 0
 
-    def __init__(self, prompt, input_ids, attention_mask, generated_tokens=None, kv_cache=None, device="cuda", sampling_metadata=None):
+    def __init__(self, prompt, input_ids, attention_mask, generated_tokens=None, kv_cache=None, device="cuda", sampling_metadata=None, priority: int=0):
         self.sequence_id = SequenceBase.sequence_id
         SequenceBase.sequence_id += 1
         self.prompt = prompt
         self.device = device
+        self.priority = priority
         self.input_ids = input_ids.squeeze(0).to(self.device)
         self.attention_mask = attention_mask.squeeze(0).to(self.device)
         if generated_tokens is not None:
@@ -20,7 +22,8 @@ class SequenceBase:
             self.generated_tokens = torch.empty(0, dtype=self.input_ids.dtype, device=self.device)
         self.kv_cache = kv_cache if kv_cache is not None else DynamicCache()
         self.stage: Stage = Stage.PREFILL
-        self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=10)
+        np.random.seed(42)  # Set the seed for reproducibility
+        self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=np.random.randint(1, 50))
 
     def update(self, next_token_ids, new_kv_cache):
         next_token_ids = next_token_ids.to(self.device)
@@ -33,9 +36,15 @@ class SequenceBase:
     def get_generated_text(self, tokenizer):
         return tokenizer.decode(self.generated_tokens, skip_special_tokens=True)
 
+    def get_input_prompt_length(self):
+        return self.input_ids.size(0)
+
+    def get_total_sequence_length(self):
+        return self.get_input_prompt_length() + self.generated_tokens.size(0)
+
     def __str__(self):
         return (
-            f"Sequence(sequence_id={self.sequence_id}, prompt={self.prompt}, generated_text={self.generated_tokens})"
+            f"Sequence(sequence_id={self.sequence_id}, priority={self.priority}, prompt={self.prompt}, generated_text={self.generated_tokens})"
         )
 
     def __repr__(self):

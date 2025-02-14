@@ -5,6 +5,7 @@ import time
 from src.sequence import Sequence, Stage
 from src.queues import FCFSQueue as SequenceQueue
 from src.batching.policies import SizeBasedBatchPolicy
+from src.monitoring.performance_monitor import PerformanceMonitor
 from .base_scheduler import BaseScheduler
 
 class ModelInstance:
@@ -16,6 +17,7 @@ class ModelInstance:
         self.prefill_stats = {"tokens": 0, "time": 0}
         self.decode_stats = {"tokens": 0, "time": 0}
         self.finished_sequences = []
+        self.monitor = PerformanceMonitor()
 
 class RoundRobinScheduler(BaseScheduler):
     def __init__(self, models: List[ModelInstance], tokenizer, batch_size=32, rank=0):
@@ -49,28 +51,42 @@ class RoundRobinScheduler(BaseScheduler):
             start_time = time.time()
             with torch.no_grad():
                 output_batch = model_instance.model(batch=batch, use_cache=True)
-                tokens_generated = len(output_batch.sequences)
                 
                 # Update throughput stats
                 elapsed = time.time() - start_time
-                stats = model_instance.decode_stats if is_decode else model_instance.prefill_stats
-                stats["tokens"] += tokens_generated
-                stats["time"] += elapsed
-                
-                # Print throughput for this iteration
-                phase = "decode" if is_decode else "prefill"
-                print(f"Model {self.rank} - Iteration {iteration} ({phase}): "
-                      f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
-                      f"Batch size = {tokens_generated} "
-                      f"Elapsed time = {elapsed:.2f} sec")
+                current_time = time.time()
+                current_batch_latencies = []
+                high_priority_latencies = []
                 
                 for seq in output_batch.sequences:
+                    current_latency = current_time - seq.previous_token_time
+                    current_batch_latencies.append(current_latency)
+                    if seq.priority == 1:
+                        high_priority_latencies.append(current_latency)
+                    seq.previous_token_time = current_time
                     seq.sampling_metadata.current_token_count += 1
+                    
                     if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
                         model_instance.finished_sequences.append(seq)
                         del seq.kv_cache
                     else:
                         model_instance.decode_queue.enqueue(seq)
+                
+                model_instance.monitor.record_batch(
+                    is_decode=is_decode,
+                    sequences=output_batch.sequences,
+                    elapsed=elapsed,
+                    sequence_latencies=current_batch_latencies,
+                    high_priority_latencies=high_priority_latencies
+                )
+                
+                # Print throughput for this iteration
+                phase = "decode" if is_decode else "prefill"
+                tokens_generated = sum(seq.get_total_sequence_length() if not is_decode else seq.sampling_metadata.current_token_count for seq in output_batch.sequences)
+                print(f"Model {self.rank} - Iteration {iteration} ({phase}): "
+                      f"Throughput = {tokens_generated/elapsed:.2f} tokens/sec "
+                      f"Batch size = {tokens_generated} "
+                      f"Elapsed time = {elapsed:.2f} sec")
 
     def run_scheduler(self):
         # Process single model instance
@@ -80,12 +96,6 @@ class RoundRobinScheduler(BaseScheduler):
 
         # Print final statistics
         model_instance = self.model_instances[0]
-        print(f"\nModel {self.rank} Statistics:")
-        if model_instance.prefill_stats["time"] > 0:
-            print(f"Prefill phase average throughput: "
-                  f"{model_instance.prefill_stats['tokens']/model_instance.prefill_stats['time']:.2f} tokens/sec")
-        if model_instance.decode_stats["time"] > 0:
-            print(f"Decode phase average throughput: "
-                  f"{model_instance.decode_stats['tokens']/model_instance.decode_stats['time']:.2f} tokens/sec")
+        model_instance.monitor.print_final_stats()
         
         return finished_sequences
