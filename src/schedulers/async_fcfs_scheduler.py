@@ -17,30 +17,12 @@ class AsyncFCFSScheduler(BaseFCFSScheduler):
         raise NotImplementedError
 
     async def run_scheduler(self):
-        finished_sequences = []
-        
         async def print_stats_periodically():
             while True:
                 await asyncio.sleep(15)
                 print("\n" + "="*80)
                 self.monitor.print_final_stats()
                 print("="*80 + "\n")
-        
         asyncio.create_task(print_stats_periodically())
-        
-        while True:  # Run forever
-            if self.decode_queue.is_empty() and self.prefill_queue.is_empty():
-                await asyncio.sleep(0.001)
-                continue
-            
-            batch, is_decode = self._get_next_batch()
-                        
-            if batch.size() == 0:
-                continue
-            
-            start_time = time.time()
-            output_batch = await self.engine.run_batch_async(batch)
-            elapsed = time.time() - start_time
-            
-            finished_sequences += self._post_process_batch(output_batch, elapsed, is_decode)
+        return await self.run_loop_async(lambda batch: self.engine.run_batch_async(batch))
 
