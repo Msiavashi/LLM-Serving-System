@@ -300,16 +300,16 @@ class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
         self._initialize_layers(config)
         
     def forward(self, batch: Batch, **kwargs) -> Batch:
-            # Prepare inputs
-            input_ids, attention_mask, past_key_values, running_batch = self._prepare_inputs(batch)
+        # Prepare inputs
+        input_ids, attention_mask, past_key_values, running_batch = self._prepare_inputs(batch)
 
-            self.model.set_running_batch(running_batch)
-            outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
+        self.model.set_running_batch(running_batch)
+        outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
 
-            # Update the running batch with the outputs
-            self._update_batch(outputs, running_batch)
+        # Update the running batch with the outputs
+        self._update_batch(outputs, running_batch)
 
-            return self.running_batch
+        return self.running_batch
     
     def _initialize_layers(self, config):
         for i in range(config.num_hidden_layers):
