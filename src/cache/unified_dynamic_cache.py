@@ -1,7 +1,8 @@
 from typing import Any, Dict, List, Optional, Tuple
 import torch
 import torch.nn.functional as F
-from .dynamic_cache import DynamicCacheEx as DynamicCache
+# from .dynamic_cache import DynamicCacheEx as DynamicCache
+from transformers.cache_utils import DynamicCache
 
 
 class UnifiedDynamicCache(DynamicCache):
@@ -46,7 +47,6 @@ class UnifiedDynamicCache(DynamicCache):
 
         # Concatenate along the batch dimension (dim=0)
         return torch.cat(updated_keys, dim=0), torch.cat(updated_values, dim=0)
-
 
     def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
         seq_lengths = [cache.get_seq_length(layer_idx) for cache in self.caches]

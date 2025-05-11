@@ -1,6 +1,5 @@
 import sys
 import os
-import random
 import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -14,8 +13,8 @@ from utils import generate_prompts
 def usage_example():
     np.random.seed(42)  # Set the random seed for reproducibility
     # Create model using factory
-    # model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=1)
-    model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=1)
+    # model_instances, tokenizer = ModelFactory.create_mixtral_model(rank=1)
+    model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=0)
     model = model_instances[0].model
     
     # Create engine using factory - now using standard model engine 
@@ -26,10 +25,11 @@ def usage_example():
         name="priority",
         engine=engine,
         tokenizer=tokenizer,
-        batch_size=32
+        batch_size=16
     )
     
     # Set the scheduler into the model through the new setter method.
+    # Note: this is not of all models. Only models supporting per-expert queues should set this.
     model.set_scheduler(scheduler)
     
     prompts = generate_prompts(256, 16, tokenizer)

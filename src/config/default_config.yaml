@@ -12,15 +12,15 @@ redis:
 model:
   type: mixtral_queue
   params: {}
-  rank: 1
+  rank: 2
 
 server:
   host: 0.0.0.0
   port: 8000
 
 scheduler:
-  type: async_priority
+  type: fcfs
   batch_size: 32
 
 engine:
-  type: async_model
+  type: model

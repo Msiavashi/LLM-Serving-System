@@ -15,7 +15,7 @@ def usage_example():
     np.random.seed(42)  # Set the random seed for reproducibility
     
     # Create model using factory - without specifying rank for single GPU usage
-    model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=1)
+    model_instances, tokenizer = ModelFactory.create_mixtral_queue_model(rank=0)
     # model_instances, tokenizer = ModelFactory.create_mixtral_model(rank=1)
     model = model_instances[0].model
     
@@ -24,13 +24,13 @@ def usage_example():
     
     # Create scheduler using factory
     scheduler = SchedulerFactory.create_scheduler(
-        name="priority",
+        name="fcfs",
         engine=engine,
         tokenizer=tokenizer,
-        batch_size=32
+        batch_size=16
     )
     
-    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 256)
+    prompts = read_shared_gpt_dataset("./examples/datasets/ShareGPT_V3_unfiltered_cleaned_split.json", 32)
     
     # Calculate and print lengths
     prompt_lengths = [len(tokenizer.encode(prompt)) for prompt in prompts]
@@ -58,9 +58,9 @@ def usage_example():
     
     results = scheduler.run_scheduler()
 
-    # for seq in results:
-    #     generated_text = seq.get_generated_text(tokenizer)
-    #     print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
+    for seq in results:
+        generated_text = seq.get_generated_text(tokenizer)
+        print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
 
 if __name__ == "__main__":
     usage_example()

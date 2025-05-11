@@ -1,77 +1,59 @@
 import sys
 import os
 
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from transformers import AutoConfig, AutoTokenizer
-import torch
-from src.schedulers.scheduler import Scheduler
-from src.models.llama_8b import Llama8B
+from src.engines.factory import EngineFactory
+from src.schedulers.factory import SchedulerFactory
+from src.models.model_factory import ModelFactory
 
-def initialize_model_and_tokenizer():
-    config = AutoConfig.from_pretrained("meta-llama/Meta-Llama-3-8B")
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B")
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    config.use_flash_attention = True   
-    model = Llama8B.from_pretrained(
-        "meta-llama/Meta-Llama-3-8B",
-        config=config,
-        device_map='auto',
-        torch_dtype=torch.float16,
-    )
-    
-    return model, tokenizer
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Rest of the code remains the same
 def usage_example():
-    model, tokenizer = initialize_model_and_tokenizer()
-    
+    model_instances, tokenizer = ModelFactory.create_model("llama3_8b", rank=0)
+    model = model_instances[0].model
     prompts = [
-        "What is the capital of France?",
-        "Explain quantum computing",
-        "How to tie a tie?",
-        "Write a hello world program in Python",
-        "What are black holes?",
-        "How to make pizza dough?",
-        "Explain photosynthesis",
-        "What is machine learning?",
-        "How do cars work?",
-        "What is climate change?",
-        "Explain DNA structure",
-        "How to learn programming?",
-        "What is artificial intelligence?",
-        "How to start exercising?",
-        "What is blockchain?",
-        "Explain evolution theory",
-        "How to write a resume?",
-        "What is renewable energy?",
-        "How to learn a new language?",
-        "What is cryptocurrency?",
-        "Explain plate tectonics",
-        "How to manage time effectively?",
-        "What is cloud computing?",
-        "How to start meditation?",
-        "What is nuclear fusion?",
-        "Explain the water cycle",
-        "How to improve memory?",
-        "What is virtual reality?",
-        "How to reduce stress?",
-        "What is quantum physics?",
-        "Explain the solar system",
-        "How to start a business?"
+        "Write a short story about a robot learning to paint.",
+        "Explain the theory of relativity in simple terms.",
+        "List three benefits of regular exercise.",
+        "Describe the process of photosynthesis in detail, including the role of chlorophyll and sunlight.",
+        "Summarize the plot of 'Pride and Prejudice' in one sentence.",
+        # generate 4 more prompts
+        "What are the main differences between classical and quantum computing?",
+        "How does the human brain process information?",
+        "What are the key principles of effective time management?",
+        "Explain the significance of the Turing test in artificial intelligence.",
+        "Describe the impact of climate change on global ecosystems.",
+        # Add one significantly longer prompt
+        "Discuss the ethical implications of genetic engineering in humans, including potential benefits and risks."
     ]
     
-    scheduler = Scheduler(model, tokenizer)
-
+    
+    # Create engine using factory - now using standard model engine 
+    engine = EngineFactory.create_engine("model", model=model)
+    
+    # Create scheduler using factory with engine instead of model
+    scheduler = SchedulerFactory.create_scheduler(
+        name="fcfs",
+        engine=engine,
+        tokenizer=tokenizer,
+        batch_size=4
+    )
+    
     for prompt in prompts:
         scheduler.add_sequence_to_queue(prompt)
     
     results = scheduler.run_scheduler()
 
-    # for seq in results:
-    #     generated_text = seq.get_generated_text(tokenizer)
-    #     print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
+    for seq in results:
+        generated_text = seq.get_generated_text(tokenizer)
+        
+        # Trim padding tokens
+        if tokenizer.pad_token:
+            generated_text = generated_text.replace(tokenizer.pad_token, "").strip()
+            
+        print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
 
 
 if __name__ == "__main__":
