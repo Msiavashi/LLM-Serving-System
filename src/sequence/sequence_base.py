@@ -50,10 +50,7 @@ class SequenceBase:
             dim=-1
         )
         self.kv_cache = new_kv_cache
-        
-        if hasattr(self.sampling_metadata, 'current_token_count'):
-            self.sampling_metadata.current_token_count += len(next_token_ids)
-
+ 
     def get_generated_text(self, tokenizer) -> str:
         return tokenizer.decode(self.generated_tokens, skip_special_tokens=True)
 
