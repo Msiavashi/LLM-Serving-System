@@ -44,7 +44,7 @@ class ModelFactory:
             torch_dtype=torch.float16,
             # Add attn_implementation for flash attention
             # attn_implementation="flash_attention_2",
-            # attn_implementation="eager",
+            attn_implementation="eager",
         )
         
         return [ModelInstance(model, f"cuda:{rank}")], tokenizer
