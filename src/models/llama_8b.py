@@ -8,8 +8,8 @@ class Llama8B(LlamaForCausalLM, ModelInputMixin, ModelOutputMixin):
     def forward(self, batch: Batch, **kwargs) -> Batch:
         # Prepare inputs
         input_ids, attention_mask, past_key_values, running_batch = self._prepare_inputs(batch)
-        
-        outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
+    
+        outputs = super().forward(input_ids, attention_mask=None, past_key_values=past_key_values, **kwargs)
         
         self._update_batch(outputs, running_batch)
 

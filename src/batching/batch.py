@@ -86,15 +86,28 @@ class Batch:
         self._preprocess_sequences()
         return self._model_inputs
 
-    def update_sequences(self, logits: torch.Tensor, kv_caches: List[Any]) -> None:
+    def update_sequences(self, logits: torch.Tensor, kv_caches: List[Any], temperature: float = 0.7) -> None:
         if len(self._sequences) != logits.shape[0]:
             raise ValueError(f"Number of sequences ({len(self._sequences)}) does not match logits batch size ({logits.shape[0]})")
 
         for i, sequence in enumerate(self._sequences):
             last_token_logits = logits[i, -1, :]
-            next_token_ids = torch.argmax(last_token_logits, dim=-1).unsqueeze(-1)
+            
+            # Apply temperature sampling
+            if temperature == 0:
+                # When temperature is 0, use greedy sampling (argmax)
+                next_token_ids = torch.argmax(last_token_logits, dim=-1).unsqueeze(-1)
+            else:
+                # Apply temperature scaling
+                scaled_logits = last_token_logits / temperature
+                # Convert to probabilities
+                probs = torch.softmax(scaled_logits, dim=-1)
+                # Sample from the probability distribution
+                next_token_ids = torch.multinomial(probs, num_samples=1)
+            
             sequence.update(next_token_ids, kv_caches[i])
-
+             
+            # Update sequence stage if it was in prefill
             if sequence.stage == Stage.PREFILL:
                 sequence.stage = Stage.DECODE
 

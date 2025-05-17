@@ -48,6 +48,12 @@ class UnifiedDynamicCache(DynamicCache):
         # Concatenate along the batch dimension (dim=0)
         return torch.cat(updated_keys, dim=0), torch.cat(updated_values, dim=0)
 
+
+    def get_key_cache(self, layer_idx: Optional[int] = 0) -> List[torch.Tensor]:
+        # Collect key caches from each sub-cache
+        key_caches = [cache.key_cache[layer_idx] for cache in self.caches]
+        return key_caches
+
     def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
         seq_lengths = [cache.get_seq_length(layer_idx) for cache in self.caches]
         return min(seq_lengths) if seq_lengths else 0
@@ -65,3 +71,6 @@ class UnifiedDynamicCache(DynamicCache):
      
     def transfer_layer_to(self, layer_idx, device):
          return [cache.transfer_layer_to(layer_idx, device) for cache in self.caches]
+     
+    def __len__(self):
+        return len(self.caches[0]) if self.caches else 0

@@ -12,17 +12,17 @@ from src.models.llama_8b import Llama8B as Llama8BModel
 class ModelFactory:
     MIXTRAL_CHECKPOINT = "mistralai/Mixtral-8x7B-Instruct-v0.1"
     PHIMOE_CHECKPOINT = "microsoft/Phi-3.5-MoE-instruct"
-    LLAMA3_8B_CHECKPOINT = "meta-llama/Meta-Llama-3-8B"
+    LLAMA3_8B_CHECKPOINT = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
     @staticmethod
     def _init_model(model_class: Type[PreTrainedModel], rank: int, checkpoint: str) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Common initialization logic for Mixtral models"""
         config = AutoConfig.from_pretrained(checkpoint)
-        tokenizer = AutoTokenizer.from_pretrained(checkpoint, use_fast=True)
+        tokenizer = AutoTokenizer.from_pretrained(checkpoint)
         
         # Enable flash attention with variable length support
         # config.use_flash_attention_2 = True 
-        # config.use_flash_attention_varlen = True
+        config.use_flash_attention_varlen = True
         
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -43,8 +43,8 @@ class ModelFactory:
             low_cpu_mem_usage=True,
             torch_dtype=torch.float16,
             # Add attn_implementation for flash attention
-            # attn_implementation="flash_attention_2",
-            attn_implementation="eager",
+            attn_implementation="flash_attention_2",
+            # attn_implementation="eager",
         )
         
         return [ModelInstance(model, f"cuda:{rank}")], tokenizer
