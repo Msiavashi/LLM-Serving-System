@@ -1,68 +1,160 @@
+import os
 import torch
 import torch.distributed as dist
-import os
-from typing import Dict, Any, Optional, List
+import torch.multiprocessing as mp
+from typing import Optional
+import logging
+import signal
+import sys
+
 
 class DistributedManager:
-    def __init__(self, backend="nccl", init_method="env://"):
-        """Initialize the distributed manager"""
-        self._initialize_dist_group(backend, init_method)
-        self.rank = dist.get_rank()
-        self.world_size = dist.get_world_size()
-        self.device = self._setup_device()
-        self.process_groups = {}  # Store different process groups for scaling
+    def __init__(
+        self,
+        backend: str = "nccl",
+        world_size: Optional[int] = None,
+        init_method: str = "env://",
+    ):
+        self.backend = backend
+        self.world_size = world_size if world_size is not None else torch.cuda.device_count()
+        self.init_method = init_method
+        self.rank = 0  # Set in init_process_group
 
-    def _initialize_dist_group(self, backend, init_method):
-        """Initialize the distributed process group"""
-        if not dist.is_initialized():
-            dist.init_process_group(backend=backend, init_method=init_method)
-    
-    def _setup_device(self):
-        """Setup the appropriate device for this rank"""
-        if torch.cuda.is_available():
-            device_id = self.rank % torch.cuda.device_count()
-            device = torch.device(f"cuda:{device_id}")
-            torch.cuda.set_device(device)
-        else:
-            device = torch.device("cpu")
-        return device
-    
-    def get_stage_for_rank(self, num_stages: int) -> int:
-        """Map rank to pipeline stage"""
-        return self.rank % num_stages
-    
-    def create_process_group(self, name: str, ranks: List[int]) -> Any:
-        """Create a new process group with specified ranks"""
-        if name in self.process_groups:
-            return self.process_groups[name]
-        
-        group = dist.new_group(ranks=ranks)
-        self.process_groups[name] = group
-        return group
-    
-    def create_scaled_groups(self, scale_factor: int) -> Dict[str, Any]:
-        """Create scaled process groups for runtime scaling"""
-        groups = {}
-        # Create groups for different scales
-        for i in range(scale_factor):
-            ranks = list(range(i, self.world_size, scale_factor))
-            group_name = f"scale_{scale_factor}_{i}"
-            groups[group_name] = self.create_process_group(group_name, ranks)
-        return groups
-    
+        # Set default environment variables for process group init
+        if "MASTER_ADDR" not in os.environ:
+            os.environ["MASTER_ADDR"] = "localhost"
+        if "MASTER_PORT" not in os.environ:
+            os.environ["MASTER_PORT"] = "29500"
+
+        # Track initialized status
+        self._initialized = False
+        self.workers = []
+        self.processes = []
+
+    def _worker_entry(self, rank, world_size, model_name, backend, init_method):
+        """Worker process entry point - receives model name instead of model object to avoid pickling issues"""
+        import signal
+        import sys
+        import torch
+        import torch.distributed as dist
+
+        # Set up signal handler for clean shutdown
+        def sigint_handler(signum, frame):
+            print(f"[Rank {rank}] Received SIGINT, exiting.")
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, sigint_handler)
+
+        try:
+            print(f"[Rank {rank}] Setting device and initializing process group...")
+            torch.cuda.set_device(rank)
+            dist.init_process_group(
+                backend=backend,
+                init_method=init_method,
+                world_size=world_size,
+                rank=rank,
+            )
+            print(f"[Rank {rank}] Process group initialized.")
+
+            # Import here to avoid pickle issues
+            from src.engines.workers.gpu_worker import GPUWorker
+            from src.models.model_factory import ModelFactory
+            from src.engines.parallel.strategies.tensor_parallel import TensorParallelStrategy
+            from src.engines.parallel.parallelization_plans.llama8b_tensor_parallel import llama8b_tensor_parallel_plan
+
+            # Create strategy and model inside the worker process
+            strategy = TensorParallelStrategy(
+                device_type='cuda',
+                parallelize_plan=llama8b_tensor_parallel_plan
+            )
+
+            # Setup strategy
+            strategy.setup(rank, world_size)
+
+            # Initialize model in worker process
+            strategy.init_model_shard(model_name, llama8b_tensor_parallel_plan)
+
+            # Create worker with initialized model
+            worker = GPUWorker(rank, world_size, strategy.model, strategy)
+            print(f"[Rank {rank}] Worker created successfully")
+
+            # Keep process alive
+            import time
+            while True:
+                time.sleep(10)
+
+        except KeyboardInterrupt:
+            print(f"[Rank {rank}] KeyboardInterrupt received, shutting down.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"[Rank {rank}] Exception: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+    def create_workers(self, model_name, strategy):
+        """Create worker processes - passing model_name instead of model object"""
+        world_size = self.world_size
+        backend = self.backend
+        init_method = self.init_method
+
+        # Create context for spawning processes
+        ctx = mp.get_context("spawn")
+        self.processes = []
+        self.workers = []
+
+        print(f"Creating {world_size-1} worker processes...")
+
+        # Spawn worker processes for ranks 1 to world_size-1
+        for rank in range(1, world_size):
+            p = ctx.Process(
+                target=self._worker_entry,
+                args=(rank, world_size, model_name, backend, init_method),
+            )
+            p.daemon = True  
+            p.start()
+            self.processes.append(p)
+            print(f"Started worker process for rank {rank}")
+
+        import torch.distributed as dist
+
+        def sigint_handler(signum, frame):
+            print("[Rank 0] Received SIGINT, terminating all processes.")
+            for p in self.processes:
+                p.terminate()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, sigint_handler)
+
+        print("[Rank 0] Setting device and initializing process group...")
+        torch.cuda.set_device(0)
+        dist.init_process_group(
+            backend=backend,
+            init_method=init_method,
+            world_size=world_size,
+            rank=0,
+        )
+        print("[Rank 0] Process group initialized.")
+
+        # Initialize model for rank 0
+        strategy.setup(0, world_size)
+        strategy.init_model_shard(model_name, llama8b_tensor_parallel_plan)
+
+        # Create GPU worker for rank 0
+        from src.engines.workers.gpu_worker import GPUWorker
+        worker = GPUWorker(0, world_size, strategy.model, strategy)
+        print("[Rank 0] Worker created successfully")
+        self.workers.append(worker)
+
     def barrier(self):
         """Synchronize all processes"""
-        dist.barrier()
-    
-    def finalize(self):
-        """Clean up distributed environment"""
         if dist.is_initialized():
-            dist.destroy_process_group()
-    
-    @property
-    def is_master_process(self):
-        """Check if this is the master process (rank 0)"""
-        return self.rank == 0
-    
-    def __repr__(self):
-        return f"<DistributedManager rank={self.rank} world_size={self.world_size} device={self.device}>"
+            dist.barrier()
+
+    def shutdown(self):
+        """Clean shutdown of all processes"""
+        print("Shutting down distributed manager...")
+        for p in self.processes:
+            if p.is_alive():
+                p.terminate()
+        print("All worker processes terminated.")

@@ -6,4 +6,5 @@ class FCFSScheduler(BaseFCFSScheduler):
         super().__init__(engine, tokenizer, batch_size)
 
     def run_scheduler(self):
-        return self.run_loop(lambda batch: self.engine.run_batch(batch))
+        results = self.run_loop(lambda batch: self.engine.run_batch(batch))
+        return results

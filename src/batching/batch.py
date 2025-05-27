@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import torch
 from .utils import SequenceProcessor
 from src.sequence import Sequence, Stage
+from src.cache.unified_dynamic_cache import UnifiedDynamicCache as DynamicCache
+from torch.nn.utils.rnn import pad_sequence
 
 
 @dataclass
@@ -122,6 +124,38 @@ class Batch:
     @staticmethod
     def get_kv_caches(sequences: List["Sequence"]) -> List[Any]:
         return [sequence.kv_cache for sequence in sequences]
+
+    def to_model_inputs(self) -> Tuple[torch.Tensor, torch.Tensor, Optional[DynamicCache], "Batch"]:
+        """
+        Prepare model inputs from this batch.
+        Returns:
+            Tuple of (input_ids, attention_mask, past_key_values, self)
+        """
+        input_ids_list, _, past_key_values_list = self.model_inputs.get_all_inputs()
+        input_ids, attention_mask = self._pad_and_create_mask(input_ids_list)
+        past_key_values = DynamicCache(past_key_values_list) if past_key_values_list else DynamicCache()
+        return input_ids, attention_mask, past_key_values, self
+
+    def update(self, outputs, running_batch: "Batch"):
+        """
+        Update the running batch with model outputs.
+        """
+        logits = outputs.logits
+        kv_cache = outputs.past_key_values
+        split_kv_cache = kv_cache.split_kv_cache()
+        running_batch.update_sequences(logits, split_kv_cache)
+
+    def _pad_and_create_mask(self, input_ids_list: List[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Pad input tensors to the same length and create attention masks.
+        """
+        normalized_ids_list = [
+            ids.squeeze(0) if ids.dim() == 2 and ids.size(0) == 1 else ids 
+            for ids in input_ids_list
+        ]
+        padded_inputs = pad_sequence(normalized_ids_list, batch_first=True, padding_value=0)
+        attention_mask = (padded_inputs != 0).long()
+        return padded_inputs, attention_mask
 
     def __await__(self):
         yield self

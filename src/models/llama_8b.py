@@ -1,17 +1,10 @@
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
-from src.mixins.model_input_mixin import ModelInputMixin
-from src.mixins.model_output_mixin import ModelOutputMixin
 from src.batching.batch import Batch
 
 
-class Llama8B(LlamaForCausalLM, ModelInputMixin, ModelOutputMixin):
-    def forward(self, batch: Batch, **kwargs) -> Batch:
-        # Prepare inputs
-        input_ids, attention_mask, past_key_values, running_batch = self._prepare_inputs(batch)
-    
+class Llama8B(LlamaForCausalLM):
+    def forward(self, input_ids, attention_mask, past_key_values, running_batch: Batch = None, **kwargs) -> Batch:
+        # input_ids, attention_mask, past_key_values, running_batch are prepared by the strategy
         outputs = super().forward(input_ids, attention_mask=None, past_key_values=past_key_values, **kwargs)
-        
-        self._update_batch(outputs, running_batch)
-
-        return self.running_batch
-    
+        # The strategy will handle updating the batch with outputs
+        return outputs

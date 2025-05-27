@@ -1,14 +1,33 @@
-class BaseParallelismStrategy:
-    """
-    Base class for all parallelism strategies.
-    """
-    def __init__(self, dist_manager=None):
-        self.dist_manager = dist_manager
-        self.parallelize_plan = {}
+from abc import ABC, abstractmethod
 
-    def set_parallelize_plan(self, plan):
-        """Set the parallelization plan (function or dict)"""
-        self.parallelize_plan = plan
+class ParallelStrategy(ABC):
+    def __init__(self, device_type='cuda'):
+        self.device_type = device_type
+        self.rank = None
+        self.world_size = None
+        self.device = None
+        self.model = None
 
-    def parallelize_model(self, model):
-        raise NotImplementedError("parallelize_model must be implemented in subclasses.")
+    @abstractmethod
+    def setup(self, rank, world_size):
+        """
+        Sets up distributed process group, device mesh, etc.
+        """
+        pass
+
+    @abstractmethod
+    def init_model_shard(self, model, parallelize_plan=None):
+        """
+        Initializes the model for this worker/rank (shard/replica/stage).
+        For TensorParallel: uses parallelize_plan to shard model.
+        For DataParallel: simple replica.
+        For PipelineParallel: partitioned model.
+        """
+        pass
+
+    @abstractmethod
+    def forward(self, batch):
+        """
+        Runs a forward pass on the model according to the parallelism plan.
+        """
+        pass

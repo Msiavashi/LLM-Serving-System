@@ -25,3 +25,24 @@ class SchedulerFactory:
             raise ValueError(f"Unknown scheduler type: {name}")
         
         return cls._schedulers[name](engine=engine, tokenizer=tokenizer, **kwargs)
+
+    @staticmethod
+    def create_scheduler(name, engine, tokenizer, batch_size=32, **kwargs):
+        """
+        Creates a scheduler based on the specified type.
+        
+        Args:
+            name: The type of scheduler to create
+            engine: The engine to use for execution
+            tokenizer: The tokenizer for processing input/output
+            batch_size: The batch size for processing
+            **kwargs: Additional arguments for specific scheduler types
+            
+        Returns:
+            An instance of the requested scheduler
+        """
+        if name.lower() == "fcfs":
+            return FCFSScheduler(engine, tokenizer, batch_size)
+        # Add more scheduler types as needed
+        else:
+            raise ValueError(f"Unknown scheduler type: {name}")

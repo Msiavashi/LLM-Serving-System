@@ -3,8 +3,6 @@ import torch
 from transformers import MixtralForCausalLM
 from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock, MixtralDecoderLayer, MixtralConfig, MixtralModel, MoeModelOutputWithPast
 from torch.nn import functional as F
-from src.mixins.model_input_mixin import ModelInputMixin
-from src.mixins.model_output_mixin import ModelOutputMixin
 from src.mixins.sparse_moe_block_with_queue_mixin import SparseMoeBlockWithQueuesMixin
 from src.batching.batch import Batch
 from typing import Optional, Tuple
@@ -293,23 +291,18 @@ class MixtralModel(MixtralModel):
                 router_logits=all_router_logits,
             )
 
-class MyCustomMixtral(MixtralForCausalLM, ModelInputMixin, ModelOutputMixin):
+class MyCustomMixtral(MixtralForCausalLM):
     def __init__(self, config):
         super().__init__(config)
         self.model = MixtralModel(config)
         self._initialize_layers(config)
         
-    def forward(self, batch: Batch, **kwargs) -> Batch:
-        # Prepare inputs
-        input_ids, attention_mask, past_key_values, running_batch = self._prepare_inputs(batch)
-
+    def forward(self, input_ids, attention_mask, past_key_values, running_batch: Batch, **kwargs):
+        # input_ids, attention_mask, past_key_values, running_batch are prepared by the strategy
         self.model.set_running_batch(running_batch)
         outputs = super().forward(input_ids, attention_mask, past_key_values=past_key_values, **kwargs)
-
-        # Update the running batch with the outputs
-        self._update_batch(outputs, running_batch)
-
-        return self.running_batch
+        # The strategy will handle updating the batch with outputs
+        return outputs
     
     def _initialize_layers(self, config):
         for i in range(config.num_hidden_layers):
