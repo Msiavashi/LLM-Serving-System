@@ -3,6 +3,7 @@ import numpy as np
 from statistics import median
 from typing import List, Dict
 from dataclasses import dataclass, field
+from prometheus_client import Histogram, Gauge, start_http_server
 
 @dataclass
 class PhaseStats:
@@ -14,7 +15,9 @@ class PhaseStats:
     # Removed finished_jobs and finished_high_priority_jobs from PhaseStats
 
 class PerformanceMonitor:
-    def __init__(self):
+    _prometheus_started = False
+
+    def __init__(self, metrics_port: int = 8001):
         self.prefill_stats = PhaseStats()
         self.decode_stats = PhaseStats()
         self.iteration = 0
@@ -24,6 +27,26 @@ class PerformanceMonitor:
         self.turnaround_times = []     # List[float] for all sequences
         self.hp_turnaround_times = []  # List[float] for high priority sequences
 
+        # Prometheus metrics
+        self.ttft_histogram = Histogram(
+            "ttft_seconds", "Time To First Token latency in seconds"
+        )
+        self.tpot_histogram = Histogram(
+            "tpot_seconds", "Time Per Output Token latency in seconds"
+        )
+        self.throughput_tokens = Gauge(
+            "throughput_tokens_per_second",
+            "Throughput measured in tokens per second",
+        )
+        self.throughput_requests = Gauge(
+            "throughput_requests_per_second",
+            "Throughput measured in requests per second",
+        )
+
+        if not PerformanceMonitor._prometheus_started:
+            start_http_server(metrics_port)
+            PerformanceMonitor._prometheus_started = True
+
     def record_batch(self, is_decode: bool, sequences: List, elapsed: float, 
                     sequence_latencies: List[float], high_priority_latencies: List[float]):
         stats = self.decode_stats if is_decode else self.prefill_stats
@@ -32,9 +55,11 @@ class PerformanceMonitor:
         stats.time += elapsed
         stats.latencies.extend(sequence_latencies)
         stats.high_priority_latencies.extend(high_priority_latencies)
-        
+
         if not is_decode:  # First token (prefill phase)
             stats.ttft_values.extend(sequence_latencies)
+            for latency in sequence_latencies:
+                self.ttft_histogram.observe(latency)
         
         # Count finished jobs using finish_time field and update global counters
         finished = sum(1 for seq in sequences if seq.finish_time is not None)
@@ -80,6 +105,8 @@ class PerformanceMonitor:
                   f"Output size = {tokens_generated}, "
                   f"Iteration TPOT = {avg_tpot:.3f} sec, "
                   f"Elapsed time = {elapsed:.2f} sec")
+            for latency in sequence_latencies:
+                self.tpot_histogram.observe(latency)
 
         if high_priority_latencies:
             avg_high_priority_latency = np.mean(high_priority_latencies)
@@ -96,6 +123,11 @@ class PerformanceMonitor:
         global_hp_job_comp = self.finished_hp_jobs / total_time if total_time > 0 else 0
         print(f"Job completion: {global_job_comp:.2f} jobs/sec")
         print(f"LS Job completion: {global_hp_job_comp:.2f} jobs/sec")
+
+        # Update Prometheus gauges
+        if total_time > 0:
+            self.throughput_tokens.set(total_tokens / total_time)
+            self.throughput_requests.set(global_job_comp)
         
         # Print average turnaround time computed from arrival and finish times
         if turnaround_times:
@@ -165,6 +197,11 @@ class PerformanceMonitor:
         print(f"\nOverall average high priority latency: {overall_avg_high_priority_latency:.3f} sec")
         print(f"\nOverall TTFT: {avg_ttft:.3f} sec")
         print(f"Overall TPOT: {avg_tpot:.3f} sec")
+
+        # Set final Prometheus gauges
+        if total_duration > 0:
+            self.throughput_tokens.set(total_tokens / total_duration)
+            self.throughput_requests.set(overall_jobs_rate)
         # Print overall turnaround metrics computed from global arrays
         if self.turnaround_times:
             overall_avg_turnaround = np.mean(self.turnaround_times)

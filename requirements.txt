@@ -103,3 +103,4 @@ xxhash==3.5.0
 yarl==1.15.4
 zarr==2.18.2
 zipp==3.21.0
+prometheus-client==0.20.0

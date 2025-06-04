@@ -41,6 +41,20 @@ You can then send requests as demonstrated in the async example `examples/async_
 - `requirements.txt`: Dependency list.
 - `setup.sh`: Helper script to create a virtual environment and install dependencies.
 
+## Performance Monitoring
+
+Prometheus metrics are exposed on port `8001` whenever the system runs. A
+`docker-compose` setup is provided under `monitoring/` to launch Prometheus and
+Grafana for visualization.
+
+```bash
+docker compose -f monitoring/docker-compose.yml up
+```
+
+Grafana will be available on <http://localhost:3000> (default credentials are
+`admin`/`admin`). Import `monitoring/grafana_dashboard.json` to view TTFT, TPOT,
+and throughput (requests/sec and tokens/sec) panels.
+
 ## Contributing
 
 Contributions are welcome! Please submit a pull request or open an issue to discuss any changes.
