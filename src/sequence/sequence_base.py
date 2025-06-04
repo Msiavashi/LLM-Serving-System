@@ -40,7 +40,7 @@ class SequenceBase:
         self.kv_cache = kv_cache if kv_cache is not None else DynamicCache()
         self.stage: Stage = Stage.PREFILL
         np.random.seed(42)  
-        self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=20)
+        self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=1)
 
     def update(self, next_token_ids: torch.Tensor, new_kv_cache: Any) -> None:
         next_token_ids = next_token_ids.to(self.device)

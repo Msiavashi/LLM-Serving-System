@@ -7,6 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.engines.factory import EngineFactory
 from src.schedulers.factory import SchedulerFactory
 from src.models.model_factory import ModelFactory
+from utils import generate_prompts
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -29,6 +30,8 @@ def usage_example():
         "Discuss the ethical implications of genetic engineering in humans, including potential benefits and risks."
     ]
     
+    prompts = generate_prompts(num_prompts=64, prompt_size=512, tokenizer=tokenizer)
+    
     
     # Create engine using factory - now using standard model engine 
     engine = EngineFactory.create_engine("model", model=model)
@@ -38,7 +41,7 @@ def usage_example():
         name="fcfs",
         engine=engine,
         tokenizer=tokenizer,
-        batch_size=4
+        batch_size=16
     )
     
     for prompt in prompts:
@@ -46,14 +49,14 @@ def usage_example():
     
     results = scheduler.run_scheduler()
 
-    for seq in results:
-        generated_text = seq.get_generated_text(tokenizer)
+    # for seq in results:
+    #     generated_text = seq.get_generated_text(tokenizer)
         
-        # Trim padding tokens
-        if tokenizer.pad_token:
-            generated_text = generated_text.replace(tokenizer.pad_token, "").strip()
+    #     # Trim padding tokens
+    #     if tokenizer.pad_token:
+    #         generated_text = generated_text.replace(tokenizer.pad_token, "").strip()
             
-        print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
+    #     print(f"Prompt: {seq.prompt}\nGenerated Text: {generated_text}\n")
 
 
 if __name__ == "__main__":
