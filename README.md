@@ -6,12 +6,11 @@ The LLM Serving System is designed to facilitate the deployment and inference of
 
 ### Prerequisites
 
-Ensure you have Python 3.8 or higher installed. Install the required dependencies using:
+Ensure you have Python 3.8 or higher installed. You can quickly set up a virtual
+environment and install the required dependencies by running:
 
 ```bash
-python -m venv env
-source env/bin/activate
-pip install -r requirements.txt
+./setup.sh
 ```
 
 ### Running Examples
@@ -40,6 +39,7 @@ You can then send requests as demonstrated in the async example `examples/async_
 - `src/`: Core source code for sequence handling, performance metrics, and schedulers.
 - `tests/`: Unit and integration tests for the LLM Serving System.
 - `requirements.txt`: Dependency list.
+- `setup.sh`: Helper script to create a virtual environment and install dependencies.
 
 ## Contributing
 
