@@ -15,7 +15,13 @@ class ModelFactory:
     LLAMA3_8B_CHECKPOINT = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
     @staticmethod
-    def _init_model(model_class: Type[PreTrainedModel], rank: int, checkpoint: str) -> Tuple[List[ModelInstance], AutoTokenizer]:
+    def _init_model(
+        model_class: Type[PreTrainedModel],
+        rank: int,
+        checkpoint: str,
+        *,
+        use_lmcache: bool = False,
+    ) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Common initialization logic for Mixtral models"""
         config = AutoConfig.from_pretrained(checkpoint)
         tokenizer = AutoTokenizer.from_pretrained(checkpoint)
@@ -46,7 +52,14 @@ class ModelFactory:
             attn_implementation="flash_attention_2",
             # attn_implementation="eager",
         )
-        
+
+        if use_lmcache:
+            from src.cache.lmcache_wrapper import LMCacheWrapper
+            model.lmcache = LMCacheWrapper.create(model)
+            model.use_lmcache = True
+        else:
+            model.use_lmcache = False
+
         return [ModelInstance(model, f"cuda:{rank}")], tokenizer
 
     @staticmethod
@@ -64,26 +77,26 @@ class ModelFactory:
         raise ValueError(f"Unknown model type: {model_type}")
 
     @staticmethod
-    def create_mixtral_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+    def create_mixtral_model(rank: int, *, use_lmcache: bool = False) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Initialize Mixtral model and tokenizer for given rank"""
-        return ModelFactory._init_model(MixtralModel, rank, ModelFactory.MIXTRAL_CHECKPOINT)
+        return ModelFactory._init_model(MixtralModel, rank, ModelFactory.MIXTRAL_CHECKPOINT, use_lmcache=use_lmcache)
 
     @staticmethod
-    def create_mixtral_queue_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+    def create_mixtral_queue_model(rank: int, *, use_lmcache: bool = False) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Initialize Mixtral Queue model and tokenizer for given rank"""
-        return ModelFactory._init_model(MixtralQueueModel, rank, ModelFactory.MIXTRAL_CHECKPOINT)
+        return ModelFactory._init_model(MixtralQueueModel, rank, ModelFactory.MIXTRAL_CHECKPOINT, use_lmcache=use_lmcache)
 
     @staticmethod
-    def create_phimoe_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+    def create_phimoe_model(rank: int, *, use_lmcache: bool = False) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Initialize Phi MOE model and tokenizer for given rank"""
-        return ModelFactory._init_model(PhiMoeModel, rank, ModelFactory.PHIMOE_CHECKPOINT)
+        return ModelFactory._init_model(PhiMoeModel, rank, ModelFactory.PHIMOE_CHECKPOINT, use_lmcache=use_lmcache)
 
     @staticmethod
-    def create_phimoe_queue_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+    def create_phimoe_queue_model(rank: int, *, use_lmcache: bool = False) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Initialize Phi MOE Queue model and tokenizer for given rank"""
-        return ModelFactory._init_model(PhiMoeQueueModel, rank, ModelFactory.PHIMOE_CHECKPOINT)
+        return ModelFactory._init_model(PhiMoeQueueModel, rank, ModelFactory.PHIMOE_CHECKPOINT, use_lmcache=use_lmcache)
 
     @staticmethod
-    def create_llama3_8b_model(rank: int) -> Tuple[List[ModelInstance], AutoTokenizer]:
+    def create_llama3_8b_model(rank: int, *, use_lmcache: bool = False) -> Tuple[List[ModelInstance], AutoTokenizer]:
         """Initialize Llama 3 8B model and tokenizer for given rank"""
-        return ModelFactory._init_model(Llama8BModel, rank, ModelFactory.LLAMA3_8B_CHECKPOINT)
+        return ModelFactory._init_model(Llama8BModel, rank, ModelFactory.LLAMA3_8B_CHECKPOINT, use_lmcache=use_lmcache)

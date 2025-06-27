@@ -56,16 +56,19 @@ class TestDynamicCache(unittest.TestCase):
         
     def test_output_cache(self):
         # Part 1: Get cache from HuggingFace model
-        tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-        
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(self.model_id)
 
-        hf_model = AutoModelForCausalLM.from_pretrained(
-            self.model_id,
-            torch_dtype=torch.bfloat16,
-            device_map="auto"
-        )
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+
+            hf_model = AutoModelForCausalLM.from_pretrained(
+                self.model_id,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+            )
+        except Exception as e:
+            self.skipTest(f"model unavailable: {e}")
         
         prompts = [
             "What is the capital of France?",

@@ -20,6 +20,8 @@ class ModelInputMixin:
     def __init__(self):
         """Initialize the mixin with a empty running batch."""
         self.running_batch: Optional[Batch] = None
+        self.use_lmcache: bool = False
+        self.lmcache = None
     
     def _pad_and_create_mask(self, input_ids_list: List[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -63,7 +65,16 @@ class ModelInputMixin:
         # Process inputs and create masks
         input_ids, attention_mask = self._pad_and_create_mask(input_ids_list)
         
-        # Create cache if available
-        past_key_values = DynamicCache(past_key_values_list) if past_key_values_list else DynamicCache()
-        
+        use_lmcache = getattr(self, "use_lmcache", False)
+        lmcache = getattr(self, "lmcache", None)
+
+        past_key_values = DynamicCache(
+            past_key_values_list,
+            use_lmcache=use_lmcache,
+            lmcache=lmcache,
+        ) if past_key_values_list else DynamicCache(use_lmcache=use_lmcache, lmcache=lmcache)
+
+        if use_lmcache and batch.sequences:
+            past_key_values.retrieve([seq.input_ids for seq in batch.sequences])
+
         return input_ids, attention_mask, past_key_values, self.running_batch

@@ -9,6 +9,9 @@ class ModelOutputMixin:
         logits = outputs.logits
         kv_cache = outputs.past_key_values
 
+        if getattr(self, "use_lmcache", False) and getattr(self, "lmcache", None):
+            kv_cache.store([seq.input_ids for seq in running_batch.sequences])
+
         # Splitting key-value cache for update
         split_kv_cache = kv_cache.split_kv_cache()
 

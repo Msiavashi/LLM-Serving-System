@@ -1,18 +1,52 @@
 from typing import Any, Dict, List, Optional, Tuple
+
 import torch
 import torch.nn.functional as F
-# from .dynamic_cache import DynamicCacheEx as DynamicCache
 from transformers.cache_utils import DynamicCache
+
+from .lmcache_wrapper import LMCacheWrapper
 
 
 class UnifiedDynamicCache(DynamicCache):
-    
-    def __init__(self, caches: Optional[List[DynamicCache]] = None):
+
+    def __init__(
+        self,
+        caches: Optional[List[DynamicCache]] = None,
+        *,
+        use_lmcache: bool = False,
+        lmcache: Optional[LMCacheWrapper] = None,
+    ):
         super().__init__()
         self.caches: List[DynamicCache] = caches if caches is not None else []
+        self.use_lmcache = use_lmcache
+        self.lmcache = lmcache
 
     def split_kv_cache(self) -> List[DynamicCache]:
         return self.caches
+
+    def store(self, tokens_list: List[torch.Tensor]) -> None:
+        """Store caches for each sequence in *tokens_list* to LMCache."""
+        if not (self.use_lmcache and self.lmcache):
+            return
+        for tokens, cache in zip(tokens_list, self.caches):
+            kv = [(cache.key_cache[i], cache.value_cache[i]) for i in range(len(cache))]
+            self.lmcache.store(tokens, kv)
+
+    def retrieve(self, tokens_list: List[torch.Tensor]) -> None:
+        """Retrieve caches from LMCache for each sequence in *tokens_list*."""
+        if not (self.use_lmcache and self.lmcache):
+            return
+        retrieved = []
+        for tokens in tokens_list:
+            kv = self.lmcache.retrieve(tokens)
+            if kv:
+                new_cache = DynamicCache()
+                for layer_idx, (k, v) in enumerate(kv):
+                    new_cache.update(k, v, layer_idx)
+                retrieved.append(new_cache)
+            else:
+                retrieved.append(DynamicCache())
+        self.caches = retrieved
 
     def update(
         self,
