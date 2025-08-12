@@ -86,28 +86,71 @@ class Batch:
         self._preprocess_sequences()
         return self._model_inputs
 
-    def update_sequences(self, logits: torch.Tensor, kv_caches: List[Any], temperature: float = 0.7) -> None:
+    def update_sequences(self, logits: torch.Tensor, kv_caches: List[Any], temperature: float = 0.0) -> None:
         if len(self._sequences) != logits.shape[0]:
             raise ValueError(f"Number of sequences ({len(self._sequences)}) does not match logits batch size ({logits.shape[0]})")
 
+        top_k = 50          # widen candidate pool
+        top_p = 0.9         # nucleus threshold
+        freq_penalty = 0.2  # frequency penalty coefficient
+
+        exclude_token_ids = getattr(self, "exclude_token_ids", getattr(type(self), "exclude_token_ids", [0]))
+        leading_exclude_token_ids = getattr(self, "leading_exclude_token_ids",
+                                            getattr(type(self), "leading_exclude_token_ids", []))
+
+        exclude_tensor = torch.tensor(exclude_token_ids, device=logits.device)
+
         for i, sequence in enumerate(self._sequences):
-            last_token_logits = logits[i, -1, :]
-            
-            # Apply temperature sampling
-            if temperature == 0:
-                # When temperature is 0, use greedy sampling (argmax)
-                next_token_ids = torch.argmax(last_token_logits, dim=-1).unsqueeze(-1)
+            last_token_logits = logits[i, -1, :].clone()
+
+            # Apply simple frequency penalty to reduce repeated punctuation bursts
+            if sequence.generated_tokens.numel() > 0:
+                unique_tokens, counts = torch.unique(sequence.generated_tokens, return_counts=True)
+                penalty = torch.zeros_like(last_token_logits)
+                penalty.index_add_(0, unique_tokens.to(last_token_logits.device),
+                                   counts.to(last_token_logits.dtype) * freq_penalty)
+                last_token_logits = last_token_logits - penalty  # subtract to lower repeated tokens
+
+            # Remove globally excluded tokens
+            if exclude_tensor.numel() > 0:
+                last_token_logits[exclude_tensor] = -float("inf")
+
+            # Top-k
+            values, indices = torch.topk(last_token_logits, min(top_k, last_token_logits.size(-1)))
+            # Convert to probs
+            probs = torch.softmax(values, dim=-1)
+
+            # Top-p (nucleus) filtering on the top-k slice
+            sorted_probs, sorted_idx = torch.sort(probs, descending=True)
+            cumulative = torch.cumsum(sorted_probs, dim=-1)
+            nucleus_mask = cumulative <= top_p
+            # Always keep at least one token
+            if not nucleus_mask.any():
+                nucleus_mask[0] = True
+            kept_sorted_idx = sorted_idx[nucleus_mask]
+            kept_indices = indices[kept_sorted_idx]
+            kept_values = last_token_logits[kept_indices]
+            kept_probs = torch.softmax(kept_values, dim=-1)
+
+            # Filter leading unwanted punctuation tokens only for very first generated token(s)
+            if sequence.generated_tokens.numel() == 0 and leading_exclude_token_ids:
+                leading_ex_tensor = torch.tensor(leading_exclude_token_ids, device=kept_indices.device)
+                leading_mask = ~torch.isin(kept_indices, leading_ex_tensor)
+                if leading_mask.any():
+                    kept_indices = kept_indices[leading_mask]
+                    kept_probs = kept_probs[leading_mask]
+                # if all filtered, fall back (keep original kept_indices / kept_probs)
+
+            # Sample
+            if kept_indices.numel() == 0:
+                # Absolute fallback to argmax over original logits (after penalties)
+                next_token_ids = torch.argmax(last_token_logits).unsqueeze(0)
             else:
-                # Apply temperature scaling
-                scaled_logits = last_token_logits / temperature
-                # Convert to probabilities
-                probs = torch.softmax(scaled_logits, dim=-1)
-                # Sample from the probability distribution
-                next_token_ids = torch.multinomial(probs, num_samples=1)
-            
+                sampled_local = torch.multinomial(kept_probs, num_samples=1)
+                next_token_ids = kept_indices[sampled_local].unsqueeze(0).flatten()
+
             sequence.update(next_token_ids, kv_caches[i])
-             
-            # Update sequence stage if it was in prefill
+
             if sequence.stage == Stage.PREFILL:
                 sequence.stage = Stage.DECODE
 
@@ -117,7 +160,8 @@ class Batch:
             raise ValueError(f"Number of sequences ({len(sequences)}) does not match number of KV caches ({len(kv_caches)})")
 
         for sequence, kv_cache in zip(sequences, kv_caches):
-            sequence.kv_cache = kv_cache
+            # Fix: Use sequence.update to ensure proper cache and token management
+            sequence.update(torch.empty(0, dtype=sequence.input_ids.dtype, device=sequence.device), kv_cache)
 
     @staticmethod
     def get_kv_caches(sequences: List["Sequence"]) -> List[Any]:

@@ -20,3 +20,11 @@ class SamplingMetadata:
     def __init__(self, num_tokens):
         self.max_sequence_length = num_tokens
         self.current_token_count = 0
+    
+    def increment_token_count(self):
+        """Increment the current token count by 1."""
+        self.current_token_count += 1
+    
+    def is_finished(self) -> bool:
+        """Check if the sequence has reached its maximum length."""
+        return self.current_token_count >= self.max_sequence_length
