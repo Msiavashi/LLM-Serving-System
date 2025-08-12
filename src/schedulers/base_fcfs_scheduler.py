@@ -42,9 +42,8 @@ class BaseFCFSScheduler(BaseScheduler):
             if seq.priority == 1:
                 high_priority_latencies.append(current_latency)
             seq.previous_token_time = current_time
-            seq.sampling_metadata.current_token_count += 1
             
-            if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
+            if seq.is_finished():
                 seq.finish_time = current_time
                 finished_sequences.append(seq)
                 del seq.kv_cache
