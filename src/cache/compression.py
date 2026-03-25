@@ -63,14 +63,14 @@ def decode_kv(Q_int8, meta):
 
     # Unpack base
     if meta["base_exp_dtype"] == "int8":
-        base = torch.frombuffer(memoryview(meta["base_exp"]), dtype=torch.int8).to(torch.int32)
+        base = torch.frombuffer(bytearray(meta["base_exp"]), dtype=torch.int8).to(torch.int32)
     else:
-        base = torch.frombuffer(memoryview(meta["base_exp"]), dtype=torch.int16).to(torch.int32)
+        base = torch.frombuffer(bytearray(meta["base_exp"]), dtype=torch.int16).to(torch.int32)
     base = base.view(H).to(device)
 
     # Unpack 2-bit deltas
     n = H * G
-    packed = torch.frombuffer(memoryview(meta["deltas_2bit"]), dtype=torch.uint8)
+    packed = torch.frombuffer(bytearray(meta["deltas_2bit"]), dtype=torch.uint8)
     shifts = torch.tensor([0, 2, 4, 6], dtype=torch.uint8)
     expanded = ((packed.unsqueeze(1) >> shifts) & 0x3).view(-1)[:n].to(device)  # [H*G]
     delta = (expanded.to(torch.int16) - 2).to(torch.int8).view(H, G)            # [-2..1]
