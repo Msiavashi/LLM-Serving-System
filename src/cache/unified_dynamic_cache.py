@@ -51,8 +51,8 @@ class UnifiedDynamicCache(DynamicCache):
             updated_values = list(updated_values)
 
         # TODO: Compress / Decompress (single pass) This is an example here. An optional compression must be implemented to compress KV cache on demand.
-        # comp_k, comp_v, k_meta, v_meta = compress(updated_keys, updated_values)
-        # dec_k, dec_v = decompress(comp_k, comp_v, k_meta, v_meta)
+        comp_k, comp_v, k_meta, v_meta = compress(updated_keys, updated_values)
+        dec_k, dec_v = decompress(comp_k, comp_v, k_meta, v_meta)
 
         # Final cast only once
         dec_k = [k.to(orig_k_dtype) for k in dec_k]
