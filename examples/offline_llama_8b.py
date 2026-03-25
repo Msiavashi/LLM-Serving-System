@@ -9,8 +9,6 @@ from src.schedulers.factory import SchedulerFactory
 from src.models.model_factory import ModelFactory
 from src.schedulers.utils import CleanOutputFormatter
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 def usage_example():
     model_instances, tokenizer = ModelFactory.create_model("llama3_8b", rank=0)
     model = model_instances[0].model

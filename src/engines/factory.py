@@ -5,8 +5,8 @@ from .async_model_engine import AsyncModelEngine
 
 class EngineFactory:
     _engines: Dict[str, Type[BaseEngine]] = {
-        "model": ModelEngine,  # Single model execution
-        "async_model": AsyncModelEngine
+        "model": ModelEngine,  # Single model execution (legacy)
+        "async_model": AsyncModelEngine,
     }
 
     @classmethod
@@ -15,6 +15,11 @@ class EngineFactory:
 
     @classmethod
     def create_engine(cls, name: str, model=None, **kwargs) -> BaseEngine:
+        # QllmEngine (v2 architecture)
+        if name == "qllm":
+            from .qllm_engine import QllmEngine
+            return QllmEngine(**kwargs)
+
         if name not in cls._engines:
             if name == "mpi":
                 # Lazy import MPIEngine only when needed
@@ -22,7 +27,7 @@ class EngineFactory:
                 cls._engines["mpi"] = MPIEngine
             else:
                 raise ValueError(f"Unknown engine type: {name}")
-        
+
         if name == "mpi":
             return cls._engines[name](**kwargs)
         else:
