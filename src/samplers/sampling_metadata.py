@@ -25,6 +25,10 @@ class SamplingMetadata:
         """Increment the current token count by 1."""
         self.current_token_count += 1
     
+    def force_finish(self):
+        """Force the sequence to be marked as finished (e.g., EOS token generated)."""
+        self.current_token_count = self.max_sequence_length
+
     def is_finished(self) -> bool:
-        """Check if the sequence has reached its maximum length."""
+        """Check if the sequence has reached its maximum length or was force-finished."""
         return self.current_token_count >= self.max_sequence_length
