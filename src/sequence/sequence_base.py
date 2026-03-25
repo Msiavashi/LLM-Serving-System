@@ -32,7 +32,11 @@ class SequenceBase:
         self.priority = priority
 
         self.input_ids = input_ids.squeeze(0).to(self.device)
+        if self.input_ids.dim() == 0:
+            self.input_ids = self.input_ids.unsqueeze(0)
         self.attention_mask = attention_mask.squeeze(0).to(self.device)
+        if self.attention_mask.dim() == 0:
+            self.attention_mask = self.attention_mask.unsqueeze(0)
 
         self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=20)
         max_new = self.sampling_metadata.max_sequence_length
