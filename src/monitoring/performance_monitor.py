@@ -108,7 +108,7 @@ class PerformanceMonitor:
         
         logger.info(f"Total time elapsed = {total_time:.2f} sec, "
               f"Total tokens generated = {stats.tokens}")
-        logger.info()
+        logger.info("")
 
     def print_final_stats(self):
         if self.prefill_stats.time == 0 and self.decode_stats.time == 0:
