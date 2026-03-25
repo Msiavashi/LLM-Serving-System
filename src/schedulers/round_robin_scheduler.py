@@ -87,4 +87,3 @@ class RoundRobinScheduler(BaseScheduler):
         model_instance.monitor.print_final_stats()
         
         return finished_sequences
-        return finished_sequences
