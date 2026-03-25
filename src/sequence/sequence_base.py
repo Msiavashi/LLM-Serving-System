@@ -41,14 +41,29 @@ class SequenceBase:
         self.stage: Stage = Stage.PREFILL
         np.random.seed(42)  
         self.sampling_metadata = sampling_metadata if sampling_metadata is not None else SamplingMetadata(num_tokens=20)
+        
+        # Add timing fields for clean output
+        import time
+        self.arrival_time = time.time()
+        self.first_token_time = None
+        self.finish_time = None
 
     def update(self, next_token_ids: torch.Tensor, new_kv_cache: Any) -> None:
         next_token_ids = next_token_ids.to(self.device)
-        self.generated_tokens = torch.cat([self.generated_tokens, next_token_ids], dim=-1)
-        self.attention_mask = torch.cat(
-            [self.attention_mask, torch.ones_like(next_token_ids, device=self.device)], 
-            dim=-1
-        )
+        # Fix: Only concatenate if next_token_ids is non-empty
+        if next_token_ids.numel() > 0:
+            # Track first token timing
+            if self.generated_tokens.numel() == 0:
+                import time
+                self.first_token_time = time.time()
+            
+            self.generated_tokens = torch.cat([self.generated_tokens, next_token_ids], dim=-1)
+            self.attention_mask = torch.cat(
+                [self.attention_mask, torch.ones_like(next_token_ids, device=self.device)], 
+                dim=-1
+            )
+            # Increment token count when new tokens are added
+            self.sampling_metadata.increment_token_count()
         self.kv_cache = new_kv_cache
  
     def get_generated_text(self, tokenizer) -> str:
@@ -61,10 +76,7 @@ class SequenceBase:
         return self.get_input_prompt_length() + self.generated_tokens.size(0)
         
     def is_finished(self) -> bool:
-        current_count = self.sampling_metadata.current_token_count if hasattr(self.sampling_metadata, 'current_token_count') else 0
-        max_length = self.sampling_metadata.max_sequence_length if hasattr(self.sampling_metadata, 'max_sequence_length') else float('inf')
-        
-        return current_count >= max_length
+        return self.sampling_metadata.is_finished()
 
     def __str__(self) -> str:
         return (

@@ -22,7 +22,7 @@ class ModelFactory:
         
         # Enable flash attention with variable length support
         # config.use_flash_attention_2 = True 
-        config.use_flash_attention_varlen = True
+        # config.use_flash_attention_varlen = True
         
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -43,7 +43,7 @@ class ModelFactory:
             low_cpu_mem_usage=True,
             torch_dtype=torch.float16,
             # Add attn_implementation for flash attention
-            attn_implementation="flash_attention_2",
+            # attn_implementation="flash_attention_2",
             # attn_implementation="eager",
         )
         

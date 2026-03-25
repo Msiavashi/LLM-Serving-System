@@ -53,9 +53,8 @@ class RoundRobinScheduler(BaseScheduler):
                     if seq.priority == 1:
                         high_priority_latencies.append(current_latency)
                     seq.previous_token_time = current_time
-                    seq.sampling_metadata.current_token_count += 1
                     
-                    if seq.sampling_metadata.current_token_count >= seq.sampling_metadata.max_sequence_length:
+                    if seq.is_finished():
                         model_instance.finished_sequences.append(seq)
                         del seq.kv_cache
                     else:
@@ -87,4 +86,5 @@ class RoundRobinScheduler(BaseScheduler):
         model_instance = self.model_instances[0]
         model_instance.monitor.print_final_stats()
         
+        return finished_sequences
         return finished_sequences

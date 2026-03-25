@@ -37,13 +37,13 @@ class PerformanceMonitor:
             stats.ttft_values.extend(sequence_latencies)
         
         # Count finished jobs using finish_time field and update global counters
-        finished = sum(1 for seq in sequences if seq.finish_time is not None)
-        hp_finished = sum(1 for seq in sequences if seq.finish_time is not None and seq.priority == 1)
+        finished = sum(1 for seq in sequences if hasattr(seq, 'finish_time') and seq.finish_time is not None)
+        hp_finished = sum(1 for seq in sequences if hasattr(seq, 'finish_time') and seq.finish_time is not None and seq.priority == 1)
         self.finished_jobs += finished
         self.finished_hp_jobs += hp_finished
         
         # Compute turnaround times from arrival to finish for finished sequences
-        turnaround_times = [seq.finish_time - seq.arrival_time for seq in sequences if seq.finish_time is not None]
+        turnaround_times = [seq.finish_time - seq.arrival_time for seq in sequences if hasattr(seq, 'finish_time') and seq.finish_time is not None and hasattr(seq, 'arrival_time')]
         if turnaround_times:
             self.turnaround_times.extend(turnaround_times)
             avg_turnaround = np.mean(turnaround_times)
@@ -51,7 +51,7 @@ class PerformanceMonitor:
             avg_turnaround = 0
         
         # Compute high priority turnaround times
-        hp_turnaround_times = [seq.finish_time - seq.arrival_time for seq in sequences if seq.finish_time is not None and seq.priority == 1]
+        hp_turnaround_times = [seq.finish_time - seq.arrival_time for seq in sequences if hasattr(seq, 'finish_time') and seq.finish_time is not None and hasattr(seq, 'arrival_time') and seq.priority == 1]
         if hp_turnaround_times:
             self.hp_turnaround_times.extend(hp_turnaround_times)
             avg_hp_turnaround = np.mean(hp_turnaround_times)
