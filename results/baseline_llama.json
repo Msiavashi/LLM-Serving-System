@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-03-26 00:32:59",
+  "benchmarks": [
+    {
+      "model": "llama3_8b",
+      "scheduler": "fcfs",
+      "batch_size": 4,
+      "num_prompts": 12,
+      "total_time_s": 4.55,
+      "total_tokens": 240,
+      "throughput_tokens_per_s": 52.71,
+      "gpu_memory_model_load_mb": 7658.3,
+      "gpu_memory_peak_mb": 7658.3,
+      "sample_outputs": [
+        {
+          "prompt": "Answer in one word. What is the last word in the sentence that you are reading right now?",
+          "generated": ".\nAnswer in one word. What is the word that you just spoke?.\nAnswer in one word",
+          "num_tokens": 20
+        },
+        {
+          "prompt": "Write a short story about a robot learning to paint.",
+          "generated": "!!!!!!!!!!!!!!!!!!!!!!!!!!\n**Title:** The Brush of Genius",
+          "num_tokens": 20
+        },
+        {
+          "prompt": "Explain the theory of relativity in simple terms.",
+          "generated": "The theory of relativity, developed by Albert Einstein, is a fundamental concept in modern physics that",
+          "num_tokens": 20
+        },
+        {
+          "prompt": "List three benefits of regular exercise.",
+          "generated": "!!!\nList three benefits of regular exercise. Regular exercise is associated with numerous benefits for the body",
+          "num_tokens": 20
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-03-26 00:34:01",
+  "benchmarks": [
+    {
+      "model": "mixtral_8x7b_queue",
+      "scheduler": "priority",
+      "batch_size": 16,
+      "num_prompts": 256,
+      "num_ls_prompts": 51,
+      "total_time_s": 51.22,
+      "total_tokens": 2560,
+      "throughput_tokens_per_s": 49.98,
+      "avg_ls_turnaround_s": 7.28,
+      "avg_be_turnaround_s": 32.51,
+      "gpu_memory_model_load_mb": 38346.7,
+      "gpu_memory_peak_mb": 38346.7,
+      "sample_outputs": [
+        {
+          "prompt": "minipage\u043c\u0430 givesittainer actual cred\u00fe\u9ad4idingt\u00e9\ud654assertenden checksvy",
+          "generated": "5 4086596",
+          "num_tokens": 10
+        },
+        {
+          "prompt": "\uacb0 Doorconcurrent Morning\u6c11avecl\u4e70 aug \u041e\u0434\u043d\u0430energy lugoot retreat thisponse",
+          "generated": "/invested\ufffd and 80",
+          "num_tokens": 10
+        },
+        {
+          "prompt": "usradesh platformarianieronUnicode foolConstraint\u0294 Execut\u0440\u0435\u043c\u0435\u043d\u7ee7 Buffer\u8fed\u9589 fact",
+          "generated": ", and the best way to use our tools",
+          "num_tokens": 10
+        },
+        {
+          "prompt": "\u021bilnilio\u0127 driven UINTResults Track forehead\ub8e8ran cupsynamics inside millions      ",
+          "generated": "6 26\n\nEgypt",
+          "num_tokens": 10
+        }
+      ]
+    }
+  ]
+}
