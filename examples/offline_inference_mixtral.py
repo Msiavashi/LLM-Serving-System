@@ -55,7 +55,7 @@ def main():
         model_adapter=adapter,
         cache_manager=cache_manager,
         sampling_params=sampling_params,
-        use_queues=False,  # Standard MoE (no per-expert queuing)
+        use_queues=True,  # Per-expert queuing with priority preemption
     )
 
     # Create priority scheduler
