@@ -139,6 +139,11 @@ class ModelAdapter:
 
         logger.info(f"Injected {len(self.moe_wrappers)} queue-aware MoE wrappers")
 
+    def set_scheduler(self, scheduler):
+        """Set the scheduler reference on all MoE wrappers (for preemption decisions)."""
+        for wrapper in self.moe_wrappers:
+            wrapper.set_scheduler(scheduler)
+
     def set_decode_mode(self, decode: bool):
         """Switch all MoE wrappers between prefill (pass-through) and decode (queued) mode."""
         for wrapper in self.moe_wrappers:

@@ -27,29 +27,27 @@ class QllmEngine(BaseEngine):
         model_adapter: ModelAdapter,
         cache_manager: Optional[SequenceCacheManager] = None,
         sampling_params: Optional[SamplingParams] = None,
+        use_queues: bool = False,
     ):
         self.model_adapter = model_adapter
         self.model = model_adapter.model  # For compatibility with existing scheduler interface
         self.cache_manager = cache_manager or SequenceCacheManager()
         self.sampling_params = sampling_params or SamplingParams()
         self.sampling_processor = SamplingProcessor(self.sampling_params)
+        self.use_queues = use_queues
 
     def run_batch(self, batch) -> "Batch":
-        """Execute one forward pass for a batch of sequences.
-
-        This method:
-        1. Sets MoE wrappers to prefill/decode mode
-        2. Prepares inputs in standard HF format
-        3. Assembles per-sequence caches into batch cache
-        4. Runs HF model forward (with native attention, cache, etc.)
-        5. Splits batch cache back to per-sequence
-        6. Samples next tokens
-        """
+        """Execute one forward pass for a batch of sequences."""
         sequences = batch.sequences
         is_decode = batch.is_decode()
 
-        # Set MoE wrappers mode
+        # Set MoE wrappers mode and inject batch context
         self.model_adapter.set_decode_mode(is_decode)
+        for wrapper in self.model_adapter.moe_wrappers:
+            wrapper.set_batch_context(
+                sequences=sequences if is_decode else None,
+                use_queues=self.use_queues and is_decode,
+            )
 
         # Prepare inputs
         input_ids, attention_mask = self._prepare_inputs(batch)
@@ -84,7 +82,6 @@ class QllmEngine(BaseEngine):
         is_decode = batch.is_decode()
 
         if is_decode:
-            # Decode: use only the last generated token per sequence
             input_ids_list = []
             for seq in sequences:
                 if seq.generated_tokens.numel() > 0:
@@ -92,15 +89,11 @@ class QllmEngine(BaseEngine):
                 else:
                     input_ids_list.append(seq.input_ids[-1:])
         else:
-            # Prefill: use full input_ids
             input_ids_list = [seq.input_ids for seq in sequences]
 
-        # Pad to same length
         padded_ids = pad_sequence(input_ids_list, batch_first=True, padding_value=0)
 
-        # Build attention mask
         if is_decode:
-            # For decode with KV cache, attention mask should cover full sequence length
             max_cache_len = max(
                 (seq.get_total_sequence_length() for seq in sequences), default=1
             )
