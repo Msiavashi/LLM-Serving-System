@@ -151,8 +151,12 @@ class QueueAwareMoEWrapper(nn.Module):
                 if tok_idx < len(sequences):
                     seq = sequences[tok_idx]
                     seq.cached_hidden_state = current_states[i]
-                    seq.cached_routing_weight = current_weights[i]
-                    seq.cached_expert_idx = expert_idx
+                    # Store weight per expert (avoids overwrite when token routes to multiple experts)
+                    if not hasattr(seq, '_cached_expert_weights'):
+                        seq._cached_expert_weights = {}
+                    seq._cached_expert_weights[expert_idx] = current_weights[i]
+                    # Track original position for correct output ordering
+                    seq._token_position = tok_idx
                     self.queues[expert_idx].enqueue(seq)
 
         if should_preempt:
@@ -175,6 +179,14 @@ class QueueAwareMoEWrapper(nn.Module):
                     final_states.append(output)
                     seq.expert_outputs_cache.clear()
                     final_sequences.append(seq)
+
+        # Sort by original token position to match input batch order
+        if final_sequences:
+            paired = sorted(zip(final_sequences, final_states),
+                            key=lambda x: getattr(x[0], '_token_position', 0))
+            final_sequences, final_states = zip(*paired)
+            final_sequences = list(final_sequences)
+            final_states = list(final_states)
 
         # Update batch context with completed sequences
         self._batch_sequences = final_sequences
@@ -199,7 +211,9 @@ class QueueAwareMoEWrapper(nn.Module):
             seq = queue.dequeue()
             sequences.append(seq)
             states.append(seq.cached_hidden_state)
-            weights.append(getattr(seq, 'cached_routing_weight', torch.tensor(1.0)))
+            # Use per-expert weight dict (set by _enqueue_tokens)
+            w = seq._cached_expert_weights.get(expert_idx, torch.tensor(1.0, device=seq.cached_hidden_state.device))
+            weights.append(w)
         states = torch.stack(states)
         weights = torch.stack(weights).unsqueeze(-1)
         expert_output = self.experts[expert_idx](states) * weights
