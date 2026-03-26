@@ -4,7 +4,7 @@ import itertools
 import torch
 from typing import Optional, Any
 
-from src.cache.dynamic_cache import DynamicCacheEx as DynamicCache
+from transformers.cache_utils import DynamicCache
 from src.samplers.sampling_metadata import SamplingMetadata
 from .stage import Stage
 

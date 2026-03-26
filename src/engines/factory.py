@@ -1,36 +1,11 @@
-from typing import Dict, Type
-from .base_engine import BaseEngine
-from .model_engine import ModelEngine
-from .async_model_engine import AsyncModelEngine
+from src.engines.base_engine import BaseEngine
+from src.engines.qllm_engine import QllmEngine
+
 
 class EngineFactory:
-    _engines: Dict[str, Type[BaseEngine]] = {
-        "model": ModelEngine,  # Single model execution (legacy)
-        "async_model": AsyncModelEngine,
-    }
 
     @classmethod
-    def register_engine(cls, name: str, engine_class: Type[BaseEngine]) -> None:
-        cls._engines[name] = engine_class
-
-    @classmethod
-    def create_engine(cls, name: str, model=None, **kwargs) -> BaseEngine:
-        # QllmEngine (v2 architecture)
+    def create_engine(cls, name: str = "qllm", **kwargs) -> BaseEngine:
         if name == "qllm":
-            from .qllm_engine import QllmEngine
             return QllmEngine(**kwargs)
-
-        if name not in cls._engines:
-            if name == "mpi":
-                # Lazy import MPIEngine only when needed
-                from .mpi_engine import MPIEngine
-                cls._engines["mpi"] = MPIEngine
-            else:
-                raise ValueError(f"Unknown engine type: {name}")
-
-        if name == "mpi":
-            return cls._engines[name](**kwargs)
-        else:
-            if model is None:
-                raise ValueError(f"Model argument required for engine type: {name}")
-            return cls._engines[name](model)
+        raise ValueError(f"Unknown engine type: {name}. Available: 'qllm'")
