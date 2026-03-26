@@ -104,24 +104,37 @@ The API server exposes an OpenAI-compatible `/v1/chat/completions` endpoint with
 mpirun -n <num_gpus> python examples/multi_gpu_example.py
 ```
 
-## Architecture
+## Architecture (v2)
+
+QLLM v2 uses **composition over inheritance** — it loads any HuggingFace model unmodified and injects per-expert queue scheduling at runtime:
 
 ```
-Request → Dispatcher → [LS_Prefill | LS_Decode | BE_Prefill | BE_Decode] Queues
-                                          ↓
-                                   Batch Engine (Algorithm 1)
-                                          ↓
-                              Inference Engine (closed-loop)
-                                          ↓
-                              Model (with per-expert queues)
-                                    ↓           ↓
-                             Attention    MoE Layer (expert FIFO queues)
-                                    ↓           ↓
-                              Unified Dynamic Cache
-                                          ↓
-                                   Token Sampling
-                                          ↓
-                              Back to Scheduler (or finished)
+Scheduler (FCFS / Priority)
+    ↓
+QllmEngine
+    ├── ModelAdapter (loads any HF model via AutoModelForCausalLM)
+    │   ├── Auto-detects MoE layers
+    │   └── Injects QueueAwareMoEWrapper at runtime (no subclassing)
+    ├── SequenceCacheManager (HF-native DynamicCache per sequence)
+    └── SamplingProcessor (vectorized, configurable temperature/top-k/top-p/EOS)
+```
+
+**Key design**: MoE blocks are wrapped via `setattr()` module replacement — the original expert networks and gate are reused directly, preserving all HF optimizations (SDPA, quantization, etc.).
+
+### New API (v2)
+
+```python
+from src.models.model_adapter import ModelAdapter
+from src.engines.qllm_engine import QllmEngine
+from src.samplers.sampling_params import SamplingParams
+
+adapter = ModelAdapter.from_name("mixtral", rank=0)  # Any HF model
+adapter.inject_queues()  # Auto-detect MoE, inject queue wrappers
+
+engine = QllmEngine(
+    model_adapter=adapter,
+    sampling_params=SamplingParams(temperature=0.7, eos_token_id=adapter.tokenizer.eos_token_id),
+)
 ```
 
 ### Directory Structure
@@ -129,25 +142,26 @@ Request → Dispatcher → [LS_Prefill | LS_Decode | BE_Prefill | BE_Decode] Que
 ```
 src/
 ├── batching/          # Batch abstraction and policies
-├── cache/             # Unified dynamic cache, KV compression
+├── cache/             # SequenceCacheManager (HF-native), compression, dynamic cache
 ├── config/            # YAML configuration management
-├── engines/           # Model, async, and MPI execution engines
-├── mixins/            # Per-expert queue mixin, model I/O mixins
-├── models/            # Model definitions and factory
+├── engines/           # QllmEngine (v2), ModelEngine (legacy), MPI engine
+├── mixins/            # QueueAwareMoEWrapper (v2), legacy model I/O mixins
+├── models/            # ModelAdapter (v2), legacy model classes, factory
 ├── monitoring/        # Performance metrics (TTFT, TPOT, throughput)
 ├── queues/            # FCFS queue with memory/Redis storage backends
-├── samplers/          # Sampling metadata
+├── samplers/          # SamplingParams, SamplingProcessor, SamplingMetadata
 ├── schedulers/        # FCFS, Priority, Round-Robin schedulers
 ├── sequence/          # Sequence abstraction (state, KV cache, timing)
 ├── server/            # FastAPI servers (standard and priority-aware)
 └── services/          # Scheduler service and factory
-examples/              # Runnable examples for all supported models
+examples/              # Runnable examples (v1 legacy + v2 new architecture)
 tests/                 # Unit and integration tests
+benchmarks/            # Reproducible benchmark harness
 ```
 
-## Results (from the paper)
+## Results
 
-Evaluated on Mixtral 8x7B, NVIDIA A100 80GB, ShareGPT dataset:
+### Paper results (Mixtral 8x7B, A100 80GB, ShareGPT):
 
 | Metric | Result |
 |---|---|
@@ -155,6 +169,16 @@ Evaluated on Mixtral 8x7B, NVIDIA A100 80GB, ShareGPT dataset:
 | SLO compliance (3s) | up to 7 req/s (baseline fails) |
 | LS turnaround time | up to 12.8x reduction |
 | Throughput | comparable or better than baseline |
+
+### v2 architecture improvements (vs v1 baseline):
+
+| Metric | v1 (baseline) | v2 (rearchitected) | Change |
+|---|---|---|---|
+| Mixtral decode TPOT | 1.25s | 0.325s | **3.8x faster** |
+| Mixtral throughput | 50 tok/s | 91 tok/s | **1.8x higher** |
+| Llama 8B decode TPOT | 0.068s | 0.057s | **16% faster** |
+| Tokens per sequence | 10 (bug) | 20 (fixed) | Correct |
+| New model effort | Subclass per model | Zero (auto-detect) | Eliminated |
 
 ## Citation
 
