@@ -54,11 +54,7 @@ class UnifiedDynamicCache(DynamicCache):
         # comp_k, comp_v, k_meta, v_meta = compress(updated_keys, updated_values)
         # dec_k, dec_v = decompress(comp_k, comp_v, k_meta, v_meta)
 
-        # Final cast only once
-        dec_k = [k.to(orig_k_dtype) for k in dec_k]
-        dec_v = [v.to(orig_v_dtype) for v in dec_v]
-
-        return torch.cat(dec_k, dim=0), torch.cat(dec_v, dim=0)
+        return torch.cat(updated_keys, dim=0).to(orig_k_dtype), torch.cat(updated_values, dim=0).to(orig_v_dtype)
 
     def get_key_cache(self, layer_idx: Optional[int] = 0) -> List[torch.Tensor]:
         return [cache.key_cache[layer_idx] for cache in self.caches]
